@@ -9,3 +9,6 @@ backups/
 .vscode/
 *.pem
 import/
+.api.env
+patrimoine/*
+!patrimoine/*.example.txt

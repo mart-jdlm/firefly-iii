@@ -1,0 +1,7 @@
+# Positions du PEA, lues chaque jour par cron/valuation.sh. Copier en pea.txt (ignoré par git).
+# Une ligne par position : symbole Yahoo Finance, quantité (point décimal), commentaire libre.
+# Trouver le symbole : https://finance.yahoo.com, chercher l'ISIN ; pour Paris il finit par .PA.
+# La ligne "especes" donne les liquidités du PEA en euros.
+CW8.PA   10      Amundi MSCI World
+ESE.PA   50      BNP Paribas Easy S&P 500
+especes  123.45

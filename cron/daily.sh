@@ -1,7 +1,8 @@
 #!/bin/sh
-# Runs the daily jobs in order (bank import, backup, Firefly III cron), each at most once every
-# 20 hours. It is started with the container and every hour, so a day missed while the machine
-# was off is caught up as soon as it is back on. A failed job is retried about 2 hours later.
+# Runs the daily jobs in order (bank import, PEA valuation, backup, Firefly III cron), each at
+# most once every 20 hours. It is started with the container and every hour, so a day missed while
+# the machine was off is caught up as soon as it is back on. A failed job is retried about 2 hours
+# later.
 set -u
 
 STATE=/backups/.state
@@ -40,6 +41,7 @@ for _ in $(seq 60); do
 done
 
 run import /usr/local/bin/import.sh
+run valuation /usr/local/bin/valuation.sh
 run backup /usr/local/bin/backup.sh
 run firefly firefly_cron
 
