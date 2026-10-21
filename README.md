@@ -35,7 +35,7 @@ Persistent data lives in named Docker volumes:
 - `.env` — Firefly III core configuration (app key, DB connection, timezone, mail, etc.). **Not committed**; see [First-time setup](#first-time-setup).
 - `.db.env` — MariaDB credentials, used by the `db` service. Must match `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` in `.env`. **Not committed**; copy `.db.env.example` and set a password.
 - `.importer.env` — `FIREFLY_III_ACCESS_TOKEN` for the Data Importer. **Not committed.**
-- `.backup.env`, `.rclone/` — restic password and Google Drive access for off-site backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
+- `.backup.env`, `.rclone/` — restic password, Google Drive access and optional healthchecks.io URL for backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
 - `cron/` — image, schedule and backup script for the `cron` service.
 
 ## First-time setup
@@ -120,6 +120,16 @@ Each night `backup.sh`:
    ```
    **Keep `RESTIC_PASSWORD` somewhere other than this machine (e.g. a password manager). Without it, the Drive copy cannot be decrypted.**
 3. Create the repository and restart: `docker compose run --rm cron restic init && docker compose up -d cron`.
+
+### Failure alerts (optional)
+
+Add a healthchecks.io ping URL to `.backup.env`:
+
+```
+HEALTHCHECK_URL=https://hc-ping.com/<uuid>
+```
+
+`backup.sh` reports its exit code to it after every run. On healthchecks.io, set the check to the cron schedule `30 2 * * *`, time zone `America/Toronto`, with a grace time of about 1 hour (the Drive upload can be slow). You get an e-mail when a run fails or does not happen at all. Apply with `docker compose up -d cron`.
 
 ### Restore
 
