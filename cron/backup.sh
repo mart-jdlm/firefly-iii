@@ -1,10 +1,21 @@
 #!/bin/sh
 # Dumps the database and archives attachments into /backups (kept $KEEP_DAYS days),
 # then pushes them to the restic repository ($RESTIC_REPOSITORY) when one is configured.
+# Optional: HEALTHCHECK_URL (healthchecks.io ping URL) to get alerted when a run fails or is missed.
 set -eu -o pipefail
 
-# Runs as root to read attachments; hand the results back to the host user.
-trap 'chown -R "${BACKUP_OWNER:-root}" /backups /config/rclone' EXIT
+# On exit: hand the results back to the host user (this runs as root to read attachments),
+# then report the exit code to healthchecks.io when HEALTHCHECK_URL is set.
+on_exit() {
+  rc=$?
+  rm -f /backups/*.tmp
+  chown -R "${BACKUP_OWNER:-root}" /backups /config/rclone
+  if [ -n "${HEALTHCHECK_URL:-}" ]; then
+    wget -q -T 10 -O /dev/null "$HEALTHCHECK_URL/$rc" || echo "Could not reach healthchecks.io"
+  fi
+  exit $rc
+}
+trap on_exit EXIT
 
 date=$(date +%F)
 db="/backups/firefly_$date.sql.gz"
