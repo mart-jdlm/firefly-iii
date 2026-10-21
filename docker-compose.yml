@@ -1,0 +1,74 @@
+services:
+  app:
+    image: fireflyiii/core:latest
+    container_name: firefly_iii_core
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - firefly_upload:/var/www/html/storage/upload
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:lts
+    container_name: firefly_iii_db
+    restart: always
+    env_file: .db.env
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -u\"$$MYSQL_USER\" -p\"$$MYSQL_PASSWORD\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - firefly_iii_db:/var/lib/mysql
+
+  importer:
+    image: fireflyiii/data-importer:latest
+    container_name: firefly_iii_importer
+    restart: always
+    ports:
+      - "8181:8080"
+    depends_on:
+      - app
+    env_file: .importer.env
+    environment:
+      - FIREFLY_III_URL=http://100.92.223.17:8080
+      - VANITY_URL=http://100.92.223.17:8080
+      - APP_URL=http://100.92.223.17:8181
+
+  firefly-pico:
+    image: cioraneanu/firefly-pico:dev
+    container_name: firefly_iii_pico
+    restart: always
+    ports:
+      - "8282:80"
+    depends_on:
+      - app
+    environment:
+      - FIREFLY_URL=http://100.92.223.17:8080
+    volumes:
+      - pico_data:/var/www/html/database/data
+
+  # Daily call to Firefly III's cron endpoint: recurring transactions, bill reminders, auto-budgets.
+  # STATIC_CRON_TOKEN is read from .env by Compose.
+  cron:
+    image: alpine:3.22
+    container_name: firefly_iii_cron
+    restart: always
+    environment:
+      - TZ=America/Toronto
+      - STATIC_CRON_TOKEN=${STATIC_CRON_TOKEN}
+    command: >
+      sh -c "echo \"0 3 * * * wget -qO- http://app:8080/api/v1/cron/$$STATIC_CRON_TOKEN; echo\" | crontab -
+      && crond -f -L /dev/stdout"
+    depends_on:
+      - app
+
+volumes:
+  firefly_upload:
+  firefly_iii_db:
+  pico_data:

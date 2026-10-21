@@ -1,0 +1,6 @@
+.env
+.db.env
+.importer.env
+*.sql
+*.sql.gz
+backups/
