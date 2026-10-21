@@ -1,4 +1,4 @@
-# Times are in $TZ (America/Toronto).
+# Times are in $TZ (Europe/Paris).
 
 # Nightly bank import (Enable Banking), before the backup and Firefly III's daily jobs.
 0 2 * * * /usr/local/bin/import.sh

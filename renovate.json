@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "timezone": "America/Toronto",
+  "timezone": "Europe/Paris",
   "schedule": ["before 6am on saturday"],
   "prBodyNotes": ["Back up before merging: `docker exec firefly_iii_cron backup.sh`. Then `git pull && docker compose pull && docker compose up -d`."],
   "packageRules": [
