@@ -139,7 +139,7 @@ After buying or selling, update `pea.txt` (quantities and `especes`). `PEA_POSIT
 
 ## Assistant
 
-[assistant/server.py](assistant/server.py) is an [MCP](https://modelcontextprotocol.io) server that gives Claude Code read-only access to Firefly III, so finances can be asked about in plain language ("how much did I spend on restaurants this summer?", "what is my net worth?", "can I afford a 600 € trip in March?"). Its tools:
+[assistant/server.py](assistant/server.py) is an [MCP](https://modelcontextprotocol.io) server that gives Claude Code access to Firefly III, so finances can be asked about and kept in plain language ("how much did I spend on restaurants this summer?", "what is my net worth?", "can I afford a 600 € trip in March?", "put last week's uncategorised transactions in the right categories"). Its tools:
 
 | Tool | Returns |
 |------|---------|
@@ -152,6 +152,11 @@ After buying or selling, update `pea.txt` (quantities and `especes`). `PEA_POSIT
 | `upcoming_bills` | expected bill payments in the next days |
 | `search_transactions` | transactions matching a Firefly III search query |
 | `pea_positions` | PEA holdings at today's prices, with weights |
+| `update_transaction` ✏️ | changes a transaction's category, budget, tags, description or notes |
+| `create_transaction` ✏️ | records a withdrawal, deposit or transfer (rules are applied) |
+| `set_budget` ✏️ | creates a budget or changes its automatic amount and period |
+
+The ✏️ tools change data: Claude Code asks before each call (unless the tool is allowed in `/permissions`), and the server tells Claude to spell out the change first. None of them deletes anything.
 
 Spending and income figures leave out the `Dette …` and `PEA …` accounts, so family debt adjustments and PEA valuations do not count as income or spending.
 
