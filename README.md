@@ -11,6 +11,7 @@ Docker Compose setup for a personal [Firefly III](https://www.firefly-iii.org/) 
 | `importer`     | `fireflyiii/data-importer` (pinned) | `firefly_iii_importer` | https://fedora.taile33049.ts.net:8181 |
 | `firefly-pico` | `cioraneanu/firefly-pico:dev` (digest) | `firefly_iii_pico`     | https://fedora.taile33049.ts.net:8282 |
 | `cron`         | built from `cron/`                | `firefly_iii_cron`     | none (backups + daily cron) |
+| `assistant`    | built from `assistant/`           | started by Claude Code | none (MCP over stdio)       |
 
 The services are only reachable from the Tailscale network, over HTTPS. Docker publishes their ports on `127.0.0.1` only, and [`tailscale serve`](https://tailscale.com/kb/1312/serve) proxies them:
 
@@ -41,6 +42,7 @@ Persistent data lives in named Docker volumes:
 - `.api.env` — `FIREFLY_TOKEN`, a personal access token for the PEA valuation. **Not committed.**
 - `patrimoine/pea.txt` — PEA positions (see [PEA valuation](#pea-valuation)). **Not committed**; `patrimoine/pea.example.txt` shows the format.
 - `cron/` — image, schedule, import and backup scripts for the `cron` service.
+- `assistant/`, `.mcp.json` — MCP server that lets Claude Code read Firefly III (see [Assistant](#assistant)).
 
 ## First-time setup
 
@@ -77,7 +79,7 @@ Every image has a fixed version in `docker-compose.yml` (Pico follows its `dev` 
 
 1. Read the release notes linked in the PR.
 2. Back up: `docker exec firefly_iii_cron backup.sh`.
-3. Merge the PR, then `git pull && docker compose pull && docker compose up -d`.
+3. Merge the PR, then `git pull && docker compose pull && docker compose up -d --build`.
 
 MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its version changes.
 
@@ -134,6 +136,26 @@ Setup:
 4. `docker compose up -d --build cron`, then `docker exec firefly_iii_cron valuation.sh`.
 
 After buying or selling, update `pea.txt` (quantities and `especes`). `PEA_POSITIONS` and `PEA_ACCOUNT` override the file and account name.
+
+## Assistant
+
+[assistant/server.py](assistant/server.py) is an [MCP](https://modelcontextprotocol.io) server that gives Claude Code read-only access to Firefly III, so finances can be asked about in plain language ("how much did I spend on restaurants this summer?", "what is my net worth?", "can I afford a 600 € trip in March?"). Its tools:
+
+| Tool | Returns |
+|------|---------|
+| `net_worth` | net worth, split into everyday accounts, savings, investments and debts |
+| `accounts` | every asset and liability account with its balance |
+| `summary` | income, spending and savings over a period |
+| `by_category` | spending or income per category over a period |
+| `monthly_history` | income, spending and savings per month |
+| `budgets` | each budget's amount, spent and left over a period |
+| `upcoming_bills` | expected bill payments in the next days |
+| `search_transactions` | transactions matching a Firefly III search query |
+| `pea_positions` | PEA holdings at today's prices, with weights |
+
+Spending and income figures leave out the `Dette …` and `PEA …` accounts, so family debt adjustments and PEA valuations do not count as income or spending.
+
+Claude Code starts it from [.mcp.json](.mcp.json) when a session opens in this directory (approve the `firefly` server on first use; `/mcp` shows its status). It runs in the `assistant` container on the Docker network, with `FIREFLY_TOKEN` from `.api.env` (see [PEA valuation](#pea-valuation)), and is rebuilt on each start, so changes to `server.py` apply to the next session. The `assistant` profile keeps `docker compose up` from starting it.
 
 ## Backups
 

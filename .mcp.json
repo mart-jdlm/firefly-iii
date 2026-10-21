@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "firefly": {
+      "command": "sh",
+      "args": ["-c", "docker compose build -q assistant >&2 && exec docker compose run --rm --no-deps -T assistant"]
+    }
+  }
+}
