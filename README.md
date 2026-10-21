@@ -37,7 +37,7 @@ Persistent data lives in named Docker volumes:
 - `.importer.env` — `FIREFLY_III_ACCESS_TOKEN` for the Data Importer. **Not committed.**
 - `.backup.env`, `.rclone/` — restic password, Google Drive access and optional healthchecks.io URL for backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
 - `.enablebanking.pem` — Enable Banking private key for bank sync. **Not committed.**
-- `import/` — data importer configs used by the nightly bank import. **Not committed.**
+- `import/` — data importer configs used by the daily bank import. **Not committed.**
 - `cron/` — image, schedule, import and backup scripts for the `cron` service.
 
 ## First-time setup
@@ -81,15 +81,18 @@ MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its
 
 ### Scheduled jobs
 
-The `cron` service (built from [cron/](cron/)) runs [cron/crontab](cron/crontab) in `Europe/Paris` time:
+The `cron` service (built from [cron/](cron/)) runs [cron/daily.sh](cron/daily.sh) when it starts and then every hour (`Europe/Paris` time). It runs, in order, each daily job that has not run in the last 20 hours:
 
-- **02:00** — [cron/import.sh](cron/import.sh): bank import (see [Bank sync](#bank-sync)).
-- **02:30** — [cron/backup.sh](cron/backup.sh): nightly backup (see [Backups](#backups)).
-- **03:00** — Firefly III's cron endpoint, for recurring transactions, bill reminders and auto-budgets. Compose reads `STATIC_CRON_TOKEN` (32 characters) from `.env`.
+1. [cron/import.sh](cron/import.sh): bank import (see [Bank sync](#bank-sync));
+2. [cron/backup.sh](cron/backup.sh): backup (see [Backups](#backups));
+3. Firefly III's cron endpoint, for recurring transactions, bill reminders and auto-budgets. Compose reads `STATIC_CRON_TOKEN` (32 characters) from `.env`.
+
+So the machine does not need to be on at night: a day it was off is caught up a few minutes after it boots. A failed job is retried about 2 hours later (not hourly: the bank allows about 4 fetches a day). Timestamps of the last runs are in `backups/.state/`; delete one to force that job on the next hour.
 
 Run them by hand:
 
 ```bash
+docker exec firefly_iii_cron daily.sh       # whatever is due
 docker exec firefly_iii_cron import.sh
 docker exec firefly_iii_cron backup.sh
 docker exec firefly_iii_cron sh -c 'wget -qO- http://app:8080/api/v1/cron/$STATIC_CRON_TOKEN'
@@ -104,20 +107,20 @@ Firefly III sends bill reminders through the `MAIL_*` settings in `.env` (Gmail 
 
 The Data Importer pulls transactions from the bank through [Enable Banking](https://enablebanking.com/) (free for your own accounts: a production application activated by linking your accounts, in "restricted mode"). Access is read-only.
 
-Every night `import.sh` POSTs to the importer's `/autoimport`, which runs each config in `import/` (last 5 days; transactions already in Firefly III are recognised by the bank's ID and skipped). Rules are applied on import. The importer e-mails a report only when it has something to say: new transactions, or errors such as an expired consent.
+Once a day (see [Scheduled jobs](#scheduled-jobs)) `import.sh` POSTs to the importer's `/autoimport`, which runs each config in `import/` (last 5 days; transactions already in Firefly III are recognised by the bank's ID and skipped). Rules are applied on import. The importer e-mails a report only when it has something to say: new transactions, or errors such as an expired consent.
 
 Setup:
 
 1. On the Enable Banking control panel, register a **production** application with redirect URL `https://<host>:8181/eb-callback`, keep the downloaded private key as `.enablebanking.pem` (mode 644: the importer runs as `www-data`), then *Activate by linking accounts*.
 2. In `.importer.env`: `ENABLE_BANKING_APP_ID`, `CAN_POST_AUTOIMPORT=true`, `IMPORT_DIR_ALLOWLIST=/import`, `ENABLE_MAIL_REPORT=true` and the `MAIL_*` settings (same Gmail account as Firefly III, plus `MAIL_DESTINATION` and `MAIL_FROM_ADDRESS`). In `.env`: `AUTO_IMPORT_SECRET` (32 random characters).
 3. Run one import by hand in the importer UI and download its configuration into `import/<name>.json`. Set its `date_range_number` to `5`.
-4. Optional: `IMPORT_HEALTHCHECK_URL` in `.backup.env` for an alert when the nightly run itself fails.
+4. Optional: `IMPORT_HEALTHCHECK_URL` in `.backup.env` for an alert when the daily import itself fails.
 
 **Bank consent expires** (90 days for Crédit Agricole de Paris). To renew: run an import in the importer UI again, download the new configuration and replace the file in `import/`.
 
 ## Backups
 
-Each night `backup.sh`:
+Each day (see [Scheduled jobs](#scheduled-jobs)) `backup.sh`:
 
 1. dumps the database to `backups/firefly_YYYY-MM-DD.sql.gz` and archives the `firefly_upload` volume to `backups/uploads_YYYY-MM-DD.tar.gz`, keeping 14 days locally;
 2. if `.backup.env` sets `RESTIC_REPOSITORY`, sends both files to an encrypted [restic](https://restic.net/) repository on Google Drive (through rclone), keeping 7 daily, 4 weekly and 12 monthly snapshots.
@@ -148,7 +151,7 @@ Add a healthchecks.io ping URL to `.backup.env`:
 HEALTHCHECK_URL=https://hc-ping.com/<uuid>
 ```
 
-`backup.sh` reports its exit code to it after every run. On healthchecks.io, set the check to the cron schedule `30 2 * * *`, time zone `Europe/Paris`, with a grace time of about 1 hour (the Drive upload can be slow). You get an e-mail when a run fails or does not happen at all. Apply with `docker compose up -d cron`.
+`backup.sh` reports its exit code to it after every run. Backups run whenever the machine is on (see [Scheduled jobs](#scheduled-jobs)), not at a fixed time, so on healthchecks.io use a **simple** schedule: period 1 day, grace time 2 days. You get an e-mail when a run fails, or when no backup has happened for 3 days. Apply with `docker compose up -d cron`.
 
 ### Restore
 
