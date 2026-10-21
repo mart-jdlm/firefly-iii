@@ -1,10 +1,6 @@
 # Times are in $TZ (Europe/Paris).
 
-# Nightly bank import (Enable Banking), before the backup and Firefly III's daily jobs.
-0 2 * * * /usr/local/bin/import.sh
-
-# Nightly backup: database dump + attachments, then an encrypted copy on Google Drive.
-30 2 * * * /usr/local/bin/backup.sh
-
-# Firefly III daily jobs: recurring transactions, bill reminders, auto-budgets.
-0 3 * * * wget -qO- http://app:8080/api/v1/cron/$STATIC_CRON_TOKEN; echo
+# Every hour, run whichever daily jobs are due: bank import, backup, then Firefly III's
+# daily jobs (recurring transactions, bill reminders, auto-budgets). See daily.sh.
+# The container also runs it at start, to catch up after the machine was off.
+0 * * * * /usr/local/bin/daily.sh
