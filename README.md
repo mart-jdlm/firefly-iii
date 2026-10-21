@@ -36,7 +36,9 @@ Persistent data lives in named Docker volumes:
 - `.db.env` — MariaDB credentials, used by the `db` service. Must match `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` in `.env`. **Not committed**; copy `.db.env.example` and set a password.
 - `.importer.env` — `FIREFLY_III_ACCESS_TOKEN` for the Data Importer. **Not committed.**
 - `.backup.env`, `.rclone/` — restic password, Google Drive access and optional healthchecks.io URL for backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
-- `cron/` — image, schedule and backup script for the `cron` service.
+- `.enablebanking.pem` — Enable Banking private key for bank sync. **Not committed.**
+- `import/` — data importer configs used by the nightly bank import. **Not committed.**
+- `cron/` — image, schedule, import and backup scripts for the `cron` service.
 
 ## First-time setup
 
@@ -81,12 +83,14 @@ MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its
 
 The `cron` service (built from [cron/](cron/)) runs [cron/crontab](cron/crontab) in `America/Toronto` time:
 
+- **02:00** — [cron/import.sh](cron/import.sh): bank import (see [Bank sync](#bank-sync)).
 - **02:30** — [cron/backup.sh](cron/backup.sh): nightly backup (see [Backups](#backups)).
 - **03:00** — Firefly III's cron endpoint, for recurring transactions, bill reminders and auto-budgets. Compose reads `STATIC_CRON_TOKEN` (32 characters) from `.env`.
 
 Run them by hand:
 
 ```bash
+docker exec firefly_iii_cron import.sh
 docker exec firefly_iii_cron backup.sh
 docker exec firefly_iii_cron sh -c 'wget -qO- http://app:8080/api/v1/cron/$STATIC_CRON_TOKEN'
 docker logs firefly_iii_cron        # output of past runs
@@ -95,6 +99,21 @@ docker logs firefly_iii_cron        # output of past runs
 ### Bill reminders by e-mail
 
 Firefly III sends bill reminders through the `MAIL_*` settings in `.env` (Gmail SMTP: `smtp.gmail.com`, port 587, `tls`). `MAIL_PASSWORD` is a Google [app password](https://myaccount.google.com/apppasswords), not the account password. After changing it: `docker compose up -d app`, then use **Options → Preferences → Notifications → Send test message**.
+
+## Bank sync
+
+The Data Importer pulls transactions from the bank through [Enable Banking](https://enablebanking.com/) (free for your own accounts: a production application activated by linking your accounts, in "restricted mode"). Access is read-only.
+
+Every night `import.sh` POSTs to the importer's `/autoimport`, which runs each config in `import/` (last 5 days; transactions already in Firefly III are recognised by the bank's ID and skipped). Rules are applied on import. The importer e-mails a report only when it has something to say: new transactions, or errors such as an expired consent.
+
+Setup:
+
+1. On the Enable Banking control panel, register a **production** application with redirect URL `https://<host>:8181/eb-callback`, keep the downloaded private key as `.enablebanking.pem` (mode 644: the importer runs as `www-data`), then *Activate by linking accounts*.
+2. In `.importer.env`: `ENABLE_BANKING_APP_ID`, `CAN_POST_AUTOIMPORT=true`, `IMPORT_DIR_ALLOWLIST=/import`, `ENABLE_MAIL_REPORT=true` and the `MAIL_*` settings (same Gmail account as Firefly III, plus `MAIL_DESTINATION` and `MAIL_FROM_ADDRESS`). In `.env`: `AUTO_IMPORT_SECRET` (32 random characters).
+3. Run one import by hand in the importer UI and download its configuration into `import/<name>.json`. Set its `date_range_number` to `5`.
+4. Optional: `IMPORT_HEALTHCHECK_URL` in `.backup.env` for an alert when the nightly run itself fails.
+
+**Bank consent expires** (90 days for Crédit Agricole de Paris). To renew: run an import in the importer UI again, download the new configuration and replace the file in `import/`.
 
 ## Backups
 
