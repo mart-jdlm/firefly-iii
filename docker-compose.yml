@@ -69,7 +69,7 @@ services:
     volumes:
       - pico_data:/var/www/html/database/data
 
-  # Scheduled jobs (see cron/crontab): Firefly III's daily cron call and the nightly backup.
+  # Scheduled jobs (see cron/daily.sh): bank import, PEA valuation, backup, Firefly III's daily cron.
   # STATIC_CRON_TOKEN is read from .env by Compose.
   cron:
     build: ./cron
@@ -79,6 +79,9 @@ services:
     env_file:
       - .db.env
       - path: .backup.env
+        required: false
+      # FIREFLY_TOKEN, a personal access token for the PEA valuation.
+      - path: .api.env
         required: false
     environment:
       - TZ=Europe/Paris
@@ -91,6 +94,7 @@ services:
       - ./backups:/backups
       - ./.rclone:/config/rclone
       - firefly_upload:/uploads:ro
+      - ./patrimoine:/patrimoine:ro
     depends_on:
       - app
 

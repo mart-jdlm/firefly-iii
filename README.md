@@ -38,6 +38,8 @@ Persistent data lives in named Docker volumes:
 - `.backup.env`, `.rclone/` — restic password, Google Drive access and optional healthchecks.io URL for backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
 - `.enablebanking.pem` — Enable Banking private key for bank sync. **Not committed.**
 - `import/` — data importer configs used by the daily bank import. **Not committed.**
+- `.api.env` — `FIREFLY_TOKEN`, a personal access token for the PEA valuation. **Not committed.**
+- `patrimoine/pea.txt` — PEA positions (see [PEA valuation](#pea-valuation)). **Not committed**; `patrimoine/pea.example.txt` shows the format.
 - `cron/` — image, schedule, import and backup scripts for the `cron` service.
 
 ## First-time setup
@@ -84,8 +86,9 @@ MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its
 The `cron` service (built from [cron/](cron/)) runs [cron/daily.sh](cron/daily.sh) when it starts and then every hour (`Europe/Paris` time). It runs, in order, each daily job that has not run in the last 20 hours:
 
 1. [cron/import.sh](cron/import.sh): bank import (see [Bank sync](#bank-sync));
-2. [cron/backup.sh](cron/backup.sh): backup (see [Backups](#backups));
-3. Firefly III's cron endpoint, for recurring transactions, bill reminders and auto-budgets. Compose reads `STATIC_CRON_TOKEN` (32 characters) from `.env`.
+2. [cron/valuation.sh](cron/valuation.sh): PEA valuation (see [PEA valuation](#pea-valuation));
+3. [cron/backup.sh](cron/backup.sh): backup (see [Backups](#backups));
+4. Firefly III's cron endpoint, for recurring transactions, bill reminders and auto-budgets. Compose reads `STATIC_CRON_TOKEN` (32 characters) from `.env`.
 
 So the machine does not need to be on at night: a day it was off is caught up a few minutes after it boots. A failed job is retried about 2 hours later (not hourly: the bank allows about 4 fetches a day). Timestamps of the last runs are in `backups/.state/`; delete one to force that job on the next hour.
 
@@ -94,6 +97,7 @@ Run them by hand:
 ```bash
 docker exec firefly_iii_cron daily.sh       # whatever is due
 docker exec firefly_iii_cron import.sh
+docker exec firefly_iii_cron valuation.sh
 docker exec firefly_iii_cron backup.sh
 docker exec firefly_iii_cron sh -c 'wget -qO- http://app:8080/api/v1/cron/$STATIC_CRON_TOKEN'
 docker logs firefly_iii_cron        # output of past runs
@@ -117,6 +121,19 @@ Setup:
 4. Optional: `IMPORT_HEALTHCHECK_URL` in `.backup.env` for an alert when the daily import itself fails.
 
 **Bank consent expires** (90 days for Crédit Agricole de Paris). To renew: run an import in the importer UI again, download the new configuration and replace the file in `import/`.
+
+## PEA valuation
+
+The bank only reports the PEA's cash movements, not what its holdings are worth. Each day `valuation.sh` reads the positions in `patrimoine/pea.txt` (Yahoo Finance symbol and quantity per line, plus `especes` for cash), prices them, and books the gap between that market value and the balance of the `PEA - Boursobank` account: a deposit from *Plus-values latentes* or a withdrawal to *Moins-values latentes*, category *Valorisation*, tag `valorisation`. The account balance therefore always equals the PEA's value. Contributions are still entered as usual (as transfers from the current account).
+
+Setup:
+
+1. In Firefly III, create a personal access token (**Options → Profile → OAuth**) and put it in `.api.env` (`chmod 600`) as `FIREFLY_TOKEN=<token>`.
+2. Copy `patrimoine/pea.example.txt` to `patrimoine/pea.txt` and enter the positions. Find each symbol by searching the ISIN on [Yahoo Finance](https://finance.yahoo.com) (Paris listings end in `.PA`); only prices in euros are accepted.
+3. **Before the first run**, make sure the account's balance equals the total contributed so far, so that only real gains are booked as *Plus-values latentes*.
+4. `docker compose up -d --build cron`, then `docker exec firefly_iii_cron valuation.sh`.
+
+After buying or selling, update `pea.txt` (quantities and `especes`). `PEA_POSITIONS` and `PEA_ACCOUNT` override the file and account name.
 
 ## Backups
 
