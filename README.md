@@ -50,7 +50,7 @@ Persistent data lives in named Docker volumes:
 3. Edit `.env`:
    - `APP_KEY` — exactly 32 random characters (e.g. `head /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32`).
    - `DB_HOST=db`, `DB_PORT=3306`, `DB_CONNECTION=mysql`, and `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` matching the `db` service.
-   - `APP_URL=https://fedora.taile33049.ts.net`, `TZ` (currently `America/Toronto`), `TRUSTED_PROXIES=**` (needed behind `tailscale serve`).
+   - `APP_URL=https://fedora.taile33049.ts.net`, `TZ` (currently `Europe/Paris`), `TRUSTED_PROXIES=**` (needed behind `tailscale serve`).
 4. Start everything (and set up `tailscale serve`, see [Services](#services)):
    ```bash
    docker compose up -d
@@ -81,7 +81,7 @@ MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its
 
 ### Scheduled jobs
 
-The `cron` service (built from [cron/](cron/)) runs [cron/crontab](cron/crontab) in `America/Toronto` time:
+The `cron` service (built from [cron/](cron/)) runs [cron/crontab](cron/crontab) in `Europe/Paris` time:
 
 - **02:00** — [cron/import.sh](cron/import.sh): bank import (see [Bank sync](#bank-sync)).
 - **02:30** — [cron/backup.sh](cron/backup.sh): nightly backup (see [Backups](#backups)).
@@ -148,7 +148,7 @@ Add a healthchecks.io ping URL to `.backup.env`:
 HEALTHCHECK_URL=https://hc-ping.com/<uuid>
 ```
 
-`backup.sh` reports its exit code to it after every run. On healthchecks.io, set the check to the cron schedule `30 2 * * *`, time zone `America/Toronto`, with a grace time of about 1 hour (the Drive upload can be slow). You get an e-mail when a run fails or does not happen at all. Apply with `docker compose up -d cron`.
+`backup.sh` reports its exit code to it after every run. On healthchecks.io, set the check to the cron schedule `30 2 * * *`, time zone `Europe/Paris`, with a grace time of about 1 hour (the Drive upload can be slow). You get an e-mail when a run fails or does not happen at all. Apply with `docker compose up -d cron`.
 
 ### Restore
 

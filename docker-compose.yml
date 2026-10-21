@@ -81,7 +81,7 @@ services:
       - path: .backup.env
         required: false
     environment:
-      - TZ=America/Toronto
+      - TZ=Europe/Paris
       - STATIC_CRON_TOKEN=${STATIC_CRON_TOKEN}
       - AUTO_IMPORT_SECRET=${AUTO_IMPORT_SECRET}
       - RCLONE_CONFIG=/config/rclone/rclone.conf
