@@ -98,6 +98,18 @@ services:
     depends_on:
       - app
 
+  # MCP server for Claude Code (see .mcp.json), started on demand with `docker compose run`.
+  # The profile keeps `docker compose up` from starting it.
+  assistant:
+    build: ./assistant
+    profiles: [assistant]
+    env_file: .api.env
+    environment:
+      - TZ=Europe/Paris
+      - FIREFLY_URL=http://app:8080
+    volumes:
+      - ./patrimoine:/patrimoine:ro
+
 volumes:
   firefly_upload:
   firefly_iii_db:

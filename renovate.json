@@ -3,7 +3,7 @@
   "extends": ["config:recommended"],
   "timezone": "Europe/Paris",
   "schedule": ["before 6am on saturday"],
-  "prBodyNotes": ["Back up before merging: `docker exec firefly_iii_cron backup.sh`. Then `git pull && docker compose pull && docker compose up -d`."],
+  "prBodyNotes": ["Back up before merging: `docker exec firefly_iii_cron backup.sh`. Then `git pull && docker compose pull && docker compose up -d --build`."],
   "packageRules": [
     {
       "description": "Firefly III images are tagged version-X.Y.Z; skip latest, develop and -cli tags.",
