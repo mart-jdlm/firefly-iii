@@ -1,4 +1,4 @@
-"""MCP server giving Claude Code read-only access to Firefly III (see the README, "Assistant").
+"""MCP server giving Claude Code access to Firefly III (see the README, "Assistant").
 
 Runs over stdio in the `assistant` container, launched on demand by Claude Code (.mcp.json).
 Needs FIREFLY_URL and FIREFLY_TOKEN; reads the PEA positions from PEA_POSITIONS.
@@ -8,10 +8,12 @@ import calendar
 import datetime as dt
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 FIREFLY_URL = os.environ.get("FIREFLY_URL", "http://app:8080").rstrip("/")
@@ -32,21 +34,35 @@ Personal finances of one person in France, from their Firefly III instance. Amou
 - Spending and income tools (summary, by_category, monthly_history) only look at everyday accounts,
   so debt adjustments and PEA valuations are left out. search_transactions returns everything.
 - Dates are YYYY-MM-DD. Without dates, tools cover the current month.
-These tools are read-only."""
+- update_transaction, create_transaction and set_budget change the user's data. Before calling one,
+  say exactly what will change (transaction, field, old and new value) and wait for the user's go-ahead.
+  Never use them on transactions in category "Valorisation": cron/valuation.sh manages those."""
 
 mcp = MCPServer("firefly", instructions=INSTRUCTIONS)
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
 
 
-def api(path: str, params: dict | list | None = None):
+def api(path: str, params: dict | list | None = None, method: str = "GET", body: dict | None = None):
     url = f"{FIREFLY_URL}/api/v1{path}"
     if params:
         url += "?" + urllib.parse.urlencode(params, doseq=True)
     request = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {FIREFLY_TOKEN}", "Accept": "application/json"}
+        url,
+        method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={
+            "Authorization": f"Bearer {FIREFLY_TOKEN}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as e:
+        # Firefly III explains validation errors in the body; pass them on.
+        raise ToolError(f"Firefly III answered {e.code}: {e.read().decode(errors='replace')[:1000]}") from e
 
 
 def api_all(path: str, params: dict | None = None) -> list[dict]:
@@ -146,7 +162,7 @@ def summary(start: str | None = None, end: str | None = None) -> dict:
 def by_category(start: str | None = None, end: str | None = None, kind: str = "expense") -> dict:
     """Spending (kind="expense") or income (kind="income") per category over a period, largest first."""
     if kind not in ("expense", "income"):
-        raise ValueError('kind must be "expense" or "income"')
+        raise ToolError('kind must be "expense" or "income"')
     start, end = period(start, end)
     rows = {r["name"]: money(r["difference"]) for r in insight(f"{kind}/category", start, end)}
     uncategorised = sum(float(r["difference"]) for r in insight(f"{kind}/no-category", start, end))
@@ -181,22 +197,27 @@ def search_transactions(query: str, limit: int = 50) -> list[dict]:
     destination_account_is:..., amount_more:50, amount_less:..., type:withdrawal|deposit|transfer.
     """
     body = api("/search/transactions", {"query": query, "limit": min(limit, 200)})
-    result = []
-    for group in body["data"]:
-        for t in group["attributes"]["transactions"]:
-            result.append({
-                "id": t["transaction_journal_id"],
-                "date": t["date"][:10],
-                "type": t["type"],
-                "description": t["description"],
-                "amount": money(t["amount"]),
-                "source": t["source_name"],
-                "destination": t["destination_name"],
-                "category": t["category_name"],
-                "budget": t["budget_name"],
-                "tags": t["tags"],
-            })
-    return result[:limit]
+    return [t for group in body["data"] for t in journals(group)][:limit]
+
+
+def journals(group: dict) -> list[dict]:
+    """The transactions (splits) of a transaction group, in the shape the tools return."""
+    return [
+        {
+            "id": t["transaction_journal_id"],
+            "date": t["date"][:10],
+            "type": t["type"],
+            "description": t["description"],
+            "amount": money(t["amount"]),
+            "source": t["source_name"],
+            "destination": t["destination_name"],
+            "category": t["category_name"],
+            "budget": t["budget_name"],
+            "tags": t["tags"],
+            "notes": t["notes"],
+        }
+        for t in group["attributes"]["transactions"]
+    ]
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -249,7 +270,7 @@ def yahoo_price(symbol: str) -> float:
     with urllib.request.urlopen(request, timeout=30) as response:
         meta = json.load(response)["chart"]["result"][0]["meta"]
     if meta["currency"] != "EUR":
-        raise ValueError(f"{symbol} is quoted in {meta['currency']}, not EUR")
+        raise ToolError(f"{symbol} is quoted in {meta['currency']}, not EUR")
     return meta["regularMarketPrice"]
 
 
@@ -274,6 +295,123 @@ def pea_positions() -> dict:
     for line in lines:
         line["weight"] = round(line["value"] / total, 4) if total else 0
     return {"positions": lines, "total": money(total)}
+
+
+@mcp.tool(annotations=WRITE)
+def update_transaction(
+    id: str,
+    category: str | None = None,
+    budget: str | None = None,
+    tags: list[str] | None = None,
+    description: str | None = None,
+    notes: str | None = None,
+) -> list[dict]:
+    """Change fields of one transaction (id from search_transactions). Only the fields given change.
+
+    category and budget take an existing name ("" removes it); budgets only apply to withdrawals.
+    tags replaces the whole list.
+    Returns the transaction as it is now.
+    """
+    group = api(f"/transaction-journals/{id}")["data"]
+    changes = {"transaction_journal_id": id}
+    for field, value in (("category_name", category), ("budget_name", budget), ("tags", tags),
+                         ("description", description), ("notes", notes)):
+        if value is not None:
+            changes[field] = value
+    if len(changes) == 1:
+        raise ToolError("Nothing to change")
+    if budget:
+        changes["budget_id"] = budget_id(budget)
+        del changes["budget_name"]
+    elif budget == "":
+        changes["budget_id"] = 0
+        del changes["budget_name"]
+    updated = api(f"/transactions/{group['id']}", method="PUT",
+                  body={"apply_rules": False, "transactions": [changes]})
+    return [t for t in journals(updated["data"]) if t["id"] == id]
+
+
+@mcp.tool(annotations=WRITE)
+def create_transaction(
+    type: str,
+    amount: float,
+    description: str,
+    source: str,
+    destination: str,
+    date: str | None = None,
+    category: str | None = None,
+    budget: str | None = None,
+    tags: list[str] | None = None,
+    notes: str | None = None,
+) -> list[dict]:
+    """Record a transaction. type is "withdrawal" (spending), "deposit" (income) or "transfer".
+
+    source and destination are account names: for a withdrawal, an asset account to the payee
+    (expense account, created if new); for a deposit, the payer (revenue account) to an asset
+    account; for a transfer, two asset accounts. amount is positive. date defaults to today.
+    budget (an existing one) only applies to withdrawals.
+    Firefly III rules are applied. Returns the transaction as recorded.
+    """
+    if type not in ("withdrawal", "deposit", "transfer"):
+        raise ToolError('type must be "withdrawal", "deposit" or "transfer"')
+    if amount <= 0:
+        raise ToolError("amount must be positive")
+    split = {
+        "type": type,
+        "amount": f"{amount:.2f}",
+        "description": description,
+        "date": date or dt.date.today().isoformat(),
+        "source_name": source,
+        "destination_name": destination,
+    }
+    for field, value in (("category_name", category), ("tags", tags), ("notes", notes)):
+        if value:
+            split[field] = value
+    if budget:
+        split["budget_id"] = budget_id(budget)
+    created = api("/transactions", method="POST", body={
+        "error_if_duplicate_hash": True,
+        "apply_rules": True,
+        "transactions": [split],
+    })
+    return journals(created["data"])
+
+
+def budget_id(name: str) -> str:
+    for b in api_all("/budgets"):
+        if b["attributes"]["name"] == name:
+            return b["id"]
+    raise ToolError(f"No budget named {name!r}")
+
+
+@mcp.tool(annotations=WRITE)
+def set_budget(name: str, amount: float, period: str = "monthly", rollover: bool = False) -> dict:
+    """Create a budget, or change an existing one's automatic amount.
+
+    Each period (daily, weekly, monthly, quarterly, half_year or yearly) the budget gets `amount`.
+    With rollover, what is left (or overspent) carries over to the next period; otherwise it resets.
+    A change applies from the next period; the current one keeps its amount.
+    """
+    if period not in ("daily", "weekly", "monthly", "quarterly", "half_year", "yearly"):
+        raise ToolError("period must be daily, weekly, monthly, quarterly, half_year or yearly")
+    body = {
+        "name": name,
+        "active": True,
+        "auto_budget_type": "rollover" if rollover else "reset",
+        "auto_budget_amount": f"{amount:.2f}",
+        "auto_budget_period": period,
+        "auto_budget_currency_code": "EUR",
+    }
+    existing = [b["id"] for b in api_all("/budgets") if b["attributes"]["name"] == name]
+    if existing:
+        result = api(f"/budgets/{existing[0]}", method="PUT", body=body)
+    else:
+        result = api("/budgets", method="POST", body=body)
+    attr = result["data"]["attributes"]
+    return {
+        "name": attr["name"],
+        "auto_budget": f'{attr["auto_budget_amount"]} {attr["auto_budget_period"]} ({attr["auto_budget_type"]})',
+    }
 
 
 if __name__ == "__main__":
