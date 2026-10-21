@@ -53,18 +53,27 @@ services:
     volumes:
       - pico_data:/var/www/html/database/data
 
-  # Daily call to Firefly III's cron endpoint: recurring transactions, bill reminders, auto-budgets.
+  # Scheduled jobs (see cron/crontab): Firefly III's daily cron call and the nightly backup.
   # STATIC_CRON_TOKEN is read from .env by Compose.
   cron:
-    image: alpine:3.22
+    build: ./cron
+    init: true
     container_name: firefly_iii_cron
     restart: always
+    env_file:
+      - .db.env
+      - path: .backup.env
+        required: false
     environment:
       - TZ=America/Toronto
       - STATIC_CRON_TOKEN=${STATIC_CRON_TOKEN}
-    command: >
-      sh -c "echo \"0 3 * * * wget -qO- http://app:8080/api/v1/cron/$$STATIC_CRON_TOKEN; echo\" | crontab -
-      && crond -f -L /dev/stdout"
+      - RCLONE_CONFIG=/config/rclone/rclone.conf
+      - RESTIC_CACHE_DIR=/tmp/restic-cache
+      - BACKUP_OWNER=1000:1000
+    volumes:
+      - ./backups:/backups
+      - ./.rclone:/config/rclone
+      - firefly_upload:/uploads:ro
     depends_on:
       - app
 

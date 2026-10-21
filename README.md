@@ -10,7 +10,7 @@ Docker Compose setup for a personal [Firefly III](https://www.firefly-iii.org/) 
 | `db`           | `mariadb:lts`                     | `firefly_iii_db`       | internal only (port 3306)   |
 | `importer`     | `fireflyiii/data-importer:latest` | `firefly_iii_importer` | http://100.92.223.17:8181   |
 | `firefly-pico` | `cioraneanu/firefly-pico:dev`     | `firefly_iii_pico`     | http://100.92.223.17:8282   |
-| `cron`         | `alpine:3.22`                     | `firefly_iii_cron`     | none (calls `app` daily)    |
+| `cron`         | built from `cron/`                | `firefly_iii_cron`     | none (backups + daily cron) |
 
 `100.92.223.17` is the host's address on the private network (a Tailscale-range IP). Change it in `docker-compose.yml` and `.env` (`APP_URL`) if the host moves.
 
@@ -26,6 +26,8 @@ Persistent data lives in named Docker volumes:
 - `.env` — Firefly III core configuration (app key, DB connection, timezone, mail, etc.). **Not committed**; see [First-time setup](#first-time-setup).
 - `.db.env` — MariaDB credentials, used by the `db` service. Must match `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` in `.env`. **Not committed**; copy `.db.env.example` and set a password.
 - `.importer.env` — `FIREFLY_III_ACCESS_TOKEN` for the Data Importer. **Not committed.**
+- `.backup.env`, `.rclone/` — restic password and Google Drive access for off-site backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
+- `cron/` — image, schedule and backup script for the `cron` service.
 
 ## First-time setup
 
@@ -58,45 +60,77 @@ docker compose down                  # stop (volumes are kept)
 
 `app` and `importer` use `:latest` and Pico uses `:dev`, so `pull` can bring breaking changes. Back up before updating.
 
-### Recurring transactions / cron
+### Scheduled jobs
 
-Firefly III needs a daily cron call for recurring transactions, bill reminders and auto-budgets. The `cron` service calls `http://app:8080/api/v1/cron/<STATIC_CRON_TOKEN>` every day at 03:00 (America/Toronto). Compose reads `STATIC_CRON_TOKEN` (32 characters) from `.env`.
+The `cron` service (built from [cron/](cron/)) runs [cron/crontab](cron/crontab) in `America/Toronto` time:
 
-Run it by hand:
+- **02:30** — [cron/backup.sh](cron/backup.sh): nightly backup (see [Backups](#backups)).
+- **03:00** — Firefly III's cron endpoint, for recurring transactions, bill reminders and auto-budgets. Compose reads `STATIC_CRON_TOKEN` (32 characters) from `.env`.
+
+Run them by hand:
 
 ```bash
+docker exec firefly_iii_cron backup.sh
 docker exec firefly_iii_cron sh -c 'wget -qO- http://app:8080/api/v1/cron/$STATIC_CRON_TOKEN'
+docker logs firefly_iii_cron        # output of past runs
 ```
+
+### Bill reminders by e-mail
+
+Firefly III sends bill reminders through the `MAIL_*` settings in `.env` (Gmail SMTP: `smtp.gmail.com`, port 587, `tls`). `MAIL_PASSWORD` is a Google [app password](https://myaccount.google.com/apppasswords), not the account password. After changing it: `docker compose up -d app`, then use **Options → Preferences → Notifications → Send test message**.
 
 ## Backups
 
-`*.sql`, `*.sql.gz` and `backups/` are git-ignored, so dumps can be kept in this folder.
+Each night `backup.sh`:
 
-Back up the database:
+1. dumps the database to `backups/firefly_YYYY-MM-DD.sql.gz` and archives the `firefly_upload` volume to `backups/uploads_YYYY-MM-DD.tar.gz`, keeping 14 days locally;
+2. if `.backup.env` sets `RESTIC_REPOSITORY`, sends both files to an encrypted [restic](https://restic.net/) repository on Google Drive (through rclone), keeping 7 daily, 4 weekly and 12 monthly snapshots.
 
-```bash
-mkdir -p backups
-docker exec firefly_iii_db sh -c 'mariadb-dump -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
-  | gzip > backups/firefly_$(date +%F).sql.gz
-```
+`backups/`, `*.sql`, `*.sql.gz`, `.backup.env` and `.rclone/` are git-ignored.
 
-Restore:
+### Off-site setup (once)
+
+1. Authorize Google Drive (opens a link to visit in a browser on this machine; rclone only sees the files it creates):
+   ```bash
+   mkdir -p .rclone
+   docker run --rm -it --user $(id -u):$(id -g) --network host -v "$PWD/.rclone":/config/rclone \
+     rclone/rclone:1.71.2 config create gdrive drive scope=drive.file
+   ```
+2. Create `.backup.env` (`chmod 600`):
+   ```
+   RESTIC_REPOSITORY=rclone:gdrive:firefly-backup
+   RESTIC_PASSWORD=<long random password>
+   ```
+   **Keep `RESTIC_PASSWORD` somewhere other than this machine (e.g. a password manager). Without it, the Drive copy cannot be decrypted.**
+3. Create the repository and restart: `docker compose run --rm cron restic init && docker compose up -d cron`.
+
+### Restore
+
+Database, from a local dump:
 
 ```bash
 gunzip -c backups/firefly_YYYY-MM-DD.sql.gz \
   | docker exec -i firefly_iii_db sh -c 'mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
 ```
 
-Attachments are in the `firefly_upload` volume and are not in the SQL dump:
+From Google Drive (needs `.rclone/` and `.backup.env`):
+
+```bash
+docker compose run --rm cron restic snapshots
+docker compose run --rm cron restic restore latest --target /backups/restore
+# files land in backups/restore/backups/
+```
+
+Attachments:
 
 ```bash
 docker run --rm -v firefly-iii_firefly_upload:/data -v "$PWD/backups":/backup alpine \
-  tar czf /backup/uploads_$(date +%F).tar.gz -C /data .
+  tar xzf /backup/uploads_YYYY-MM-DD.tar.gz -C /data
 ```
 
 (The volume prefix depends on the Compose project name; check it with `docker volume ls`.)
 
 ## Security notes
 
-- Secrets live only in the git-ignored `.env`, `.db.env` and `.importer.env`. Never put them back in `docker-compose.yml`.
+- Secrets live only in the git-ignored `.env`, `.db.env`, `.importer.env`, `.backup.env` and `.rclone/`. Never put them back in `docker-compose.yml`.
 - Ports 8080, 8181 and 8282 are published on every interface on the host. Use a firewall or bind them to the private IP (e.g. `"100.92.223.17:8080:8080"`) if the host is reachable from the internet.
