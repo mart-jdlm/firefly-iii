@@ -6,10 +6,10 @@ Docker Compose setup for a personal [Firefly III](https://www.firefly-iii.org/) 
 
 | Service        | Image                             | Container              | URL                         |
 |----------------|-----------------------------------|------------------------|-----------------------------|
-| `app`          | `fireflyiii/core:latest`          | `firefly_iii_core`     | https://fedora.taile33049.ts.net      |
-| `db`           | `mariadb:lts`                     | `firefly_iii_db`       | internal only (port 3306)   |
-| `importer`     | `fireflyiii/data-importer:latest` | `firefly_iii_importer` | https://fedora.taile33049.ts.net:8181 |
-| `firefly-pico` | `cioraneanu/firefly-pico:dev`     | `firefly_iii_pico`     | https://fedora.taile33049.ts.net:8282 |
+| `app`          | `fireflyiii/core` (pinned)        | `firefly_iii_core`     | https://fedora.taile33049.ts.net      |
+| `db`           | `mariadb` (pinned)                | `firefly_iii_db`       | internal only (port 3306)   |
+| `importer`     | `fireflyiii/data-importer` (pinned) | `firefly_iii_importer` | https://fedora.taile33049.ts.net:8181 |
+| `firefly-pico` | `cioraneanu/firefly-pico:dev` (digest) | `firefly_iii_pico`     | https://fedora.taile33049.ts.net:8282 |
 | `cron`         | built from `cron/`                | `firefly_iii_cron`     | none (backups + daily cron) |
 
 The services are only reachable from the Tailscale network, over HTTPS. Docker publishes their ports on `127.0.0.1` only, and [`tailscale serve`](https://tailscale.com/kb/1312/serve) proxies them:
@@ -62,12 +62,20 @@ Persistent data lives in named Docker volumes:
 ```bash
 docker compose ps                    # status
 docker compose logs -f app           # follow Firefly III logs
-docker compose pull && docker compose up -d   # update all images
+docker compose pull && docker compose up -d   # apply the versions in docker-compose.yml
 docker compose restart importer      # restart a single service
 docker compose down                  # stop (volumes are kept)
 ```
 
-`app` and `importer` use `:latest` and Pico uses `:dev`, so `pull` can bring breaking changes. Back up before updating.
+### Updates
+
+Every image has a fixed version in `docker-compose.yml` (Pico follows its `dev` tag, pinned by digest), so `pull` never changes anything on its own. [Renovate](https://docs.renovatebot.com/) ([renovate.json](renovate.json)) opens a pull request on GitHub for each new version, on Saturday mornings. To apply one:
+
+1. Read the release notes linked in the PR.
+2. Back up: `docker exec firefly_iii_cron backup.sh`.
+3. Merge the PR, then `git pull && docker compose pull && docker compose up -d`.
+
+MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its version changes.
 
 ### Scheduled jobs
 

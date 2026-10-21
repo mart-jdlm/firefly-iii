@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "America/Toronto",
+  "schedule": ["before 6am on saturday"],
+  "prBodyNotes": ["Back up before merging: `docker exec firefly_iii_cron backup.sh`. Then `git pull && docker compose pull && docker compose up -d`."],
+  "packageRules": [
+    {
+      "description": "Firefly III images are tagged version-X.Y.Z; skip latest, develop and -cli tags.",
+      "matchPackageNames": ["fireflyiii/core", "fireflyiii/data-importer"],
+      "versioning": "regex:^version-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "description": "Pico runs the dev tag, pinned by digest; propose new dev builds at most once a week.",
+      "matchPackageNames": ["cioraneanu/firefly-pico"],
+      "matchUpdateTypes": ["digest"],
+      "commitMessageTopic": "Firefly Pico dev build"
+    }
+  ]
+}
