@@ -8,3 +8,4 @@ backups/
 .backup.env
 .vscode/
 *.pem
+import/
