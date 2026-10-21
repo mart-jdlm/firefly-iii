@@ -6,13 +6,22 @@ Docker Compose setup for a personal [Firefly III](https://www.firefly-iii.org/) 
 
 | Service        | Image                             | Container              | URL                         |
 |----------------|-----------------------------------|------------------------|-----------------------------|
-| `app`          | `fireflyiii/core:latest`          | `firefly_iii_core`     | http://100.92.223.17:8080   |
+| `app`          | `fireflyiii/core:latest`          | `firefly_iii_core`     | https://fedora.taile33049.ts.net      |
 | `db`           | `mariadb:lts`                     | `firefly_iii_db`       | internal only (port 3306)   |
-| `importer`     | `fireflyiii/data-importer:latest` | `firefly_iii_importer` | http://100.92.223.17:8181   |
-| `firefly-pico` | `cioraneanu/firefly-pico:dev`     | `firefly_iii_pico`     | http://100.92.223.17:8282   |
+| `importer`     | `fireflyiii/data-importer:latest` | `firefly_iii_importer` | https://fedora.taile33049.ts.net:8181 |
+| `firefly-pico` | `cioraneanu/firefly-pico:dev`     | `firefly_iii_pico`     | https://fedora.taile33049.ts.net:8282 |
 | `cron`         | built from `cron/`                | `firefly_iii_cron`     | none (backups + daily cron) |
 
-`100.92.223.17` is the host's address on the private network (a Tailscale-range IP). Change it in `docker-compose.yml` and `.env` (`APP_URL`) if the host moves.
+The services are only reachable from the Tailscale network, over HTTPS. Docker publishes their ports on `127.0.0.1` only, and [`tailscale serve`](https://tailscale.com/kb/1312/serve) proxies them:
+
+```bash
+tailscale serve --bg --https=443  http://127.0.0.1:8080   # Firefly III
+tailscale serve --bg --https=8181 http://127.0.0.1:8181   # Data Importer
+tailscale serve --bg --https=8282 http://127.0.0.1:8282   # Firefly Pico
+tailscale serve status
+```
+
+This needs MagicDNS, HTTPS certificates and Serve enabled on the tailnet, and `sudo tailscale set --operator=$USER` once. The serve config persists across reboots. The importer and Pico talk to Firefly III directly over the Docker network (`http://app:8080`). If the machine name changes, update `APP_URL` in `.env` and `VANITY_URL` / `APP_URL` in `docker-compose.yml`.
 
 Persistent data lives in named Docker volumes:
 
@@ -39,14 +48,14 @@ Persistent data lives in named Docker volumes:
 3. Edit `.env`:
    - `APP_KEY` — exactly 32 random characters (e.g. `head /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32`).
    - `DB_HOST=db`, `DB_PORT=3306`, `DB_CONNECTION=mysql`, and `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` matching the `db` service.
-   - `APP_URL`, `TZ` (currently `America/Toronto`), `TRUSTED_PROXIES=**`.
-4. Start everything:
+   - `APP_URL=https://fedora.taile33049.ts.net`, `TZ` (currently `America/Toronto`), `TRUSTED_PROXIES=**` (needed behind `tailscale serve`).
+4. Start everything (and set up `tailscale serve`, see [Services](#services)):
    ```bash
    docker compose up -d
    ```
-5. Open Firefly III on port 8080 and register the first user (it becomes the admin).
+5. Open Firefly III and register the first user (it becomes the admin).
 6. For the Data Importer: in Firefly III go to **Options → Profile → OAuth → Personal Access Tokens**, create a token, and put it in `.importer.env` as `FIREFLY_III_ACCESS_TOKEN=<token>`. Then `docker compose up -d importer`.
-7. For Firefly Pico: open port 8282 and log in with a personal access token as well.
+7. For Firefly Pico: open it on port 8282 and log in with a personal access token as well.
 
 ## Day-to-day
 
@@ -133,4 +142,4 @@ docker run --rm -v firefly-iii_firefly_upload:/data -v "$PWD/backups":/backup al
 ## Security notes
 
 - Secrets live only in the git-ignored `.env`, `.db.env`, `.importer.env`, `.backup.env` and `.rclone/`. Never put them back in `docker-compose.yml`.
-- Ports 8080, 8181 and 8282 are published on every interface on the host. Use a firewall or bind them to the private IP (e.g. `"100.92.223.17:8080:8080"`) if the host is reachable from the internet.
+- Ports 8080, 8181 and 8282 are bound to `127.0.0.1`: they are not reachable from the LAN, only through `tailscale serve`. Keep it that way.
