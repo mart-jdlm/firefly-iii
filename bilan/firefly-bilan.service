@@ -1,0 +1,10 @@
+[Unit]
+Description=Firefly III monthly review (see the README, "Monthly review")
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# claude lives in ~/.local/bin; the unit is linked from the repository, so %h is the home directory.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+ExecStart=%h/firefly-iii/bilan/bilan.sh
+TimeoutStartSec=30min

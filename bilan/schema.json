@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["headline", "highlights", "categories_comment", "watch", "uncategorised", "advice"],
+  "properties": {
+    "headline": {"type": "string"},
+    "highlights": {"type": "array", "items": {"type": "string"}},
+    "categories_comment": {"type": "string"},
+    "watch": {"type": "array", "items": {"type": "string"}},
+    "uncategorised": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "category"],
+        "properties": {"id": {"type": "string"}, "category": {"type": "string"}}
+      }
+    },
+    "advice": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "text"],
+        "properties": {"title": {"type": "string"}, "text": {"type": "string"}}
+      }
+    }
+  }
+}
