@@ -152,11 +152,15 @@ After buying or selling, update `pea.txt` (quantities and `especes`). `PEA_POSIT
 | `upcoming_bills` | expected bill payments in the next days |
 | `search_transactions` | transactions matching a Firefly III search query |
 | `pea_positions` | PEA holdings at today's prices, with weights |
+| `net_worth_history` | net worth at the end of each month, by group, with what was saved and the PEA's market moves |
+| `projection` | net worth year by year over the next years, and when each family debt is cleared |
 | `update_transaction` ✏️ | changes a transaction's category, budget, tags, description or notes |
 | `create_transaction` ✏️ | records a withdrawal, deposit or transfer (rules are applied) |
 | `set_budget` ✏️ | creates a budget or changes its automatic amount and period |
 
 The ✏️ tools change data: Claude Code asks before each call (unless the tool is allowed in `/permissions`), and the server tells Claude to spell out the change first. None of them deletes anything.
+
+`net_worth_history` measures saving as the month's net worth change minus the PEA's unrealised gains, so money borrowed from family counts against it, unlike `monthly_history`. `projection` starts from today's balances and, unless told otherwise, assumes the user keeps saving the median of the last 12 months, paying into the PEA and repaying debts at the last 12 months' pace, with a 5 % yearly PEA return, 1.5 % on cash and savings and 2 % inflation. Each of these can be changed in the question ("and if I put 100 € a month in the PEA?").
 
 Spending and income figures leave out the `Dette …` and `PEA …` accounts, so family debt adjustments and PEA valuations do not count as income or spending.
 

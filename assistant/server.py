@@ -33,6 +33,9 @@ Personal finances of one person in France, from their Firefly III instance. Amou
   day; category "Valorisation" holds those unrealised gains and losses, which are not income or spending.
 - Spending and income tools (summary, by_category, monthly_history) only look at everyday accounts,
   so debt adjustments and PEA valuations are left out. search_transactions returns everything.
+- To know how much the user really saves, use net_worth_history (its "saved" counts money borrowed
+  from family); projection builds on it. A projection is an estimate: always state its assumptions
+  and offer to rerun it with other ones (higher saving, PEA contributions, debt repayment, returns).
 - Dates are YYYY-MM-DD. Without dates, tools cover the current month.
 - update_transaction, create_transaction and set_budget change the user's data. Before calling one,
   say exactly what will change (transaction, field, old and new value) and wait for the user's go-ahead.
@@ -99,13 +102,19 @@ def everyday_account_ids() -> list[str]:
     ]
 
 
-def insight(path: str, start: str, end: str) -> list[dict]:
-    params = [("start", start), ("end", end)] + [("accounts[]", i) for i in everyday_account_ids()]
+def investment_account_ids() -> list[str]:
+    return [a["id"] for a in assets() if a["attributes"]["name"].startswith(INVESTMENT_PREFIX)]
+
+
+def insight(path: str, start: str, end: str, account_ids: list[str] | None = None) -> list[dict]:
+    if account_ids is None:
+        account_ids = everyday_account_ids()
+    params = [("start", start), ("end", end)] + [("accounts[]", i) for i in account_ids]
     return api(f"/insight/{path}", params)
 
 
-def insight_total(kind: str, start: str, end: str) -> float:
-    return money(sum(float(r["difference"]) for r in insight(f"{kind}/total", start, end)))
+def insight_total(kind: str, start: str, end: str, account_ids: list[str] | None = None) -> float:
+    return money(sum(float(r["difference"]) for r in insight(f"{kind}/total", start, end, account_ids)))
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -127,11 +136,11 @@ def accounts() -> list[dict]:
     return result
 
 
-@mcp.tool(annotations=READ_ONLY)
-def net_worth() -> dict:
-    """Current net worth, split into everyday accounts, savings, investments and debts."""
+def net_worth_at(date: str | None = None) -> dict:
+    """Net worth by group and account, as of the end of `date` (today without one)."""
     groups: dict[str, dict[str, float]] = {"courant": {}, "epargne": {}, "investissements": {}, "dettes": {}}
-    for a in assets() + api_all("/accounts", {"type": "liabilities"}):
+    params = {"date": date} if date else {}
+    for a in api_all("/accounts", {"type": "asset", **params}) + api_all("/accounts", {"type": "liabilities", **params}):
         attr = a["attributes"]
         if not attr["active"] or not attr["include_net_worth"]:
             continue
@@ -147,6 +156,151 @@ def net_worth() -> dict:
         groups[group][name] = balance
     totals = {g: money(sum(v.values())) for g, v in groups.items()}
     return {"accounts": groups, "totals": totals, "net_worth": money(sum(totals.values()))}
+
+
+@mcp.tool(annotations=READ_ONLY)
+def net_worth() -> dict:
+    """Current net worth, split into everyday accounts, savings, investments and debts."""
+    return net_worth_at()
+
+
+def month_ends(months: int) -> list[dt.date]:
+    """The last day of each of the last `months` months (today for the current one), preceded by
+    the end of the month before them."""
+    today = dt.date.today()
+    ends = []
+    for back in range(months, -1, -1):
+        year, month = divmod(today.year * 12 + today.month - 1 - back, 12)
+        month += 1
+        ends.append(min(today, dt.date(year, month, calendar.monthrange(year, month)[1])))
+    return ends
+
+
+def history(months: int) -> tuple[dict, list[dict]]:
+    """Net worth before the first of the last `months` months, then one row per month."""
+    ends = month_ends(months)
+    pea_ids = investment_account_ids()
+    base = previous = net_worth_at(ends[0].isoformat())
+    rows = []
+    for end in ends[1:]:
+        start = end.replace(day=1).isoformat()
+        current = net_worth_at(end.isoformat())
+        # Unrealised gains and losses booked on the PEA by cron/valuation.sh (deposits from
+        # "Plus-values latentes", withdrawals to "Moins-values latentes").
+        market = money(insight_total("income", start, end.isoformat(), pea_ids)
+                       + insight_total("expense", start, end.isoformat(), pea_ids)) if pea_ids else 0.0
+        change = money(current["net_worth"] - previous["net_worth"])
+        rows.append({
+            "month": start[:7],
+            **current["totals"],
+            "net_worth": current["net_worth"],
+            "change": change,
+            "market": market,
+            "saved": money(change - market),
+            "accounts": current["accounts"],
+        })
+        previous = current
+    return base, rows
+
+
+@mcp.tool(annotations=READ_ONLY)
+def net_worth_history(months: int = 12) -> list[dict]:
+    """Net worth at the end of each of the last `months` months (today for the current one), by group.
+
+    change is the month's net worth change, market the PEA's unrealised gains or losses in it, and
+    saved = change - market: what the user really put aside, debt movements included (money
+    borrowed from family lowers it). This is a better measure of saving than monthly_history.
+    """
+    if not 1 <= months <= 60:
+        raise ToolError("months must be between 1 and 60")
+    return [{k: v for k, v in row.items() if k != "accounts"} for row in history(months)[1]]
+
+
+@mcp.tool(annotations=READ_ONLY)
+def projection(
+    years: int = 5,
+    monthly_saving: float | None = None,
+    pea_monthly: float | None = None,
+    debt_repayment: float | None = None,
+    pea_return: float = 0.05,
+    savings_rate: float = 0.015,
+    inflation: float = 0.02,
+) -> dict:
+    """Project net worth month by month over `years` years from today, under stated assumptions.
+
+    - monthly_saving: net worth added each month before returns (default: median `saved` of the
+      last 12 full months, see net_worth_history).
+    - pea_monthly: part of it paid into the PEA (default: average net contribution over 12 months).
+    - debt_repayment: part of it repaying family debts, smallest first, until they are cleared
+      (default: average monthly decrease of the debts over 12 months, 0 if they grew).
+      The rest of monthly_saving goes to cash and savings accounts.
+    - pea_return: yearly PEA return; savings_rate: yearly interest on cash and savings accounts;
+      inflation: to also give net worth in today's euros. Rates are fractions (0.05 = 5 %).
+    Returns the assumptions used (with how defaults were derived), one row per year, and the month
+    each debt would be cleared (null if not within the horizon).
+    """
+    if not 1 <= years <= 50:
+        raise ToolError("years must be between 1 and 50")
+    base, rows = history(13)
+    now, past = rows[-1], rows[:-1]  # today, and the 12 full months before the current one
+    derived = {}
+    if monthly_saving is None:
+        saved = sorted(row["saved"] for row in past)
+        monthly_saving = money((saved[5] + saved[6]) / 2)
+        derived["monthly_saving"] = "median of the last 12 months"
+    if pea_monthly is None:
+        contributed = past[-1]["investissements"] - base["totals"]["investissements"] - sum(r["market"] for r in past)
+        pea_monthly = money(max(contributed, 0) / 12)
+        derived["pea_monthly"] = "average of the last 12 months"
+    if debt_repayment is None:
+        debt_repayment = money(max(past[-1]["dettes"] - base["totals"]["dettes"], 0) / 12)
+        derived["debt_repayment"] = "average of the last 12 months"
+
+    pea = now["investissements"]
+    cash = now["courant"] + now["epargne"]
+    debts = {name: -balance for name, balance in now["accounts"]["dettes"].items() if balance < 0}
+    cleared = {name: None for name in debts}
+    put_in = gains = 0.0
+    month = dt.date.today().replace(day=1)
+    yearly = []
+    for step in range(1, years * 12 + 1):
+        month = (month + dt.timedelta(days=32)).replace(day=1)
+        market = pea * ((1 + pea_return) ** (1 / 12) - 1)
+        interest = max(cash, 0) * savings_rate / 12
+        repay = left = min(debt_repayment, sum(debts.values()))
+        for name in sorted(debts, key=debts.get):
+            part = min(left, debts[name])
+            debts[name] -= part
+            left -= part
+            if debts[name] < 0.005 and cleared[name] is None:
+                cleared[name] = month.isoformat()[:7]
+        pea += market + pea_monthly
+        cash += interest + monthly_saving - pea_monthly - repay
+        put_in += monthly_saving
+        gains += market + interest
+        if step % 12 == 0:
+            total = cash + pea - sum(debts.values())
+            yearly.append({
+                "date": month.isoformat()[:7],
+                "cash_and_savings": money(cash),
+                "pea": money(pea),
+                "debts": money(-sum(debts.values())),
+                "net_worth": money(total),
+                "net_worth_today_eur": money(total / (1 + inflation) ** (step / 12)),
+                "total_saved": money(put_in),
+                "total_returns": money(gains),
+            })
+    return {
+        "assumptions": {
+            "monthly_saving": monthly_saving, "pea_monthly": pea_monthly, "debt_repayment": debt_repayment,
+            "pea_return": pea_return, "savings_rate": savings_rate, "inflation": inflation,
+            "derived_from_history": derived,
+        },
+        "today": {"cash_and_savings": money(now["courant"] + now["epargne"]),
+                  "pea": now["investissements"], "debts": now["dettes"], "net_worth": now["net_worth"]},
+        "years": yearly,
+        "debts_cleared": cleared,
+    }
 
 
 @mcp.tool(annotations=READ_ONLY)
