@@ -43,6 +43,7 @@ Persistent data lives in named Docker volumes:
 - `patrimoine/pea.txt` — PEA positions (see [PEA valuation](#pea-valuation)). **Not committed**; `patrimoine/pea.example.txt` shows the format.
 - `cron/` — image, schedule, import and backup scripts for the `cron` service.
 - `assistant/`, `.mcp.json` — MCP server that lets Claude Code read Firefly III (see [Assistant](#assistant)).
+- `bilan/` — monthly HTML review, commented by Claude Code and e-mailed (see [Monthly review](#monthly-review)); reviews are kept in `bilans/`, **not committed**.
 
 ## First-time setup
 
@@ -165,6 +166,31 @@ The ✏️ tools change data: Claude Code asks before each call (unless the tool
 Spending and income figures leave out the `Dette …` and `PEA …` accounts, so family debt adjustments and PEA valuations do not count as income or spending.
 
 Claude Code starts it from [.mcp.json](.mcp.json) when a session opens in this directory (approve the `firefly` server on first use; `/mcp` shows its status). It runs in the `assistant` container on the Docker network, with `FIREFLY_TOKEN` from `.api.env` (see [PEA valuation](#pea-valuation)), and is rebuilt on each start, so changes to `server.py` apply to the next session. The `assistant` profile keeps `docker compose up` from starting it.
+
+## Monthly review
+
+Every month, [bilan/bilan.sh](bilan/bilan.sh) e-mails an HTML review of the month that just ended: key figures (income, spending, what was really saved, net worth), spending per category against the 3 months before, largest expenses, budgets, net worth over 6 months, uncategorised transactions with a suggested category, bills due next month, and where the current pace leads in 5 years.
+
+1. [bilan/data.py](bilan/data.py) gathers every figure from Firefly III, in the `assistant` container with the [assistant](#assistant)'s helpers.
+2. Claude Code reads them and writes the comments only (summary, highlights, things to check, suggested categories, advice), as JSON following [bilan/schema.json](bilan/schema.json). Its instructions are in [bilan/prompt.md](bilan/prompt.md).
+3. [bilan/render.py](bilan/render.py) lays both out as an e-mail (tables and inline styles, with a plain-text version), and [bilan/send_mail.py](bilan/send_mail.py) sends it through the `MAIL_*` settings in `.env`, to `MAIL_FROM` or `BILAN_TO` if set.
+
+The figures, comments and e-mail are kept in `bilans/YYYY-MM.*` (git-ignored).
+
+Claude gets no tools at all, only the figures in its prompt: it cannot change data.
+
+It runs on the host, not in a container, so it uses the Claude subscription of the logged-in user. A systemd user timer starts it every day at 10:00, or at login if the machine was off then. It does nothing once the month's review exists, so a missed month or a failed run is caught up the next day.
+
+Setup (once):
+
+1. Install Claude Code in `~/.local/bin` (`curl -fsSL https://claude.ai/install.sh | bash`) and log in once (`claude`).
+2. Enable the timer (the units stay in the repository; they expect it in `~/firefly-iii`):
+   ```bash
+   systemctl --user link ~/firefly-iii/bilan/firefly-bilan.service
+   systemctl --user enable --now ~/firefly-iii/bilan/firefly-bilan.timer
+   ```
+
+By hand: `bilan/bilan.sh` (last month), `bilan/bilan.sh 2026-09` (another month), `FORCE=1 bilan/bilan.sh` (rebuild an existing review), `NO_MAIL=1 bilan/bilan.sh` (no e-mail). Logs: `journalctl --user -u firefly-bilan`.
 
 ## Backups
 

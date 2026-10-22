@@ -1,0 +1,11 @@
+[Unit]
+Description=Firefly III monthly review, checked every day
+
+[Timer]
+# Every day at 10:00, and at login when 10:00 was missed. bilan.sh only works once a month.
+OnCalendar=*-*-* 10:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

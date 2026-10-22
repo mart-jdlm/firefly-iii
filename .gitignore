@@ -12,3 +12,4 @@ import/
 .api.env
 patrimoine/*
 !patrimoine/*.example.txt
+bilans/
