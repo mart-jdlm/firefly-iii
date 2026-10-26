@@ -40,6 +40,7 @@ Persistent data lives in named Docker volumes:
 - `.enablebanking.pem` — Enable Banking private key for bank sync. **Not committed.**
 - `import/` — data importer configs used by the daily bank import. **Not committed.**
 - `.api.env` — `FIREFLY_TOKEN`, a personal access token for the PEA valuation. **Not committed.**
+- `patrimoine/objectifs.json` — savings goals, written by the assistant (`set_goal`). **Not committed**.
 - `patrimoine/pea.txt` — PEA positions (see [PEA valuation](#pea-valuation)). **Not committed**; `patrimoine/pea.example.txt` shows the format.
 - `cron/` — image, schedule, import and backup scripts for the `cron` service.
 - `assistant/`, `.mcp.json` — MCP server that lets Claude Code read Firefly III (see [Assistant](#assistant)).
@@ -153,6 +154,9 @@ After buying or selling, tell the assistant (`set_pea_position`) or edit `pea.tx
 | `upcoming_bills` | expected bill payments in the next days |
 | `search_transactions` | transactions matching a Firefly III search query |
 | `pea_positions` | PEA holdings at today's prices, with weights |
+| `goals` | savings goals (a target balance on an account, optional deadline) with progress, pace and estimated date |
+| `set_goal` ✏️ | creates or replaces a savings goal in `patrimoine/objectifs.json` |
+| `remove_goal` ✏️ | deletes a savings goal |
 | `set_pea_position` ✏️ | sets the quantity held of a PEA position (or the cash) in `patrimoine/pea.txt` |
 | `net_worth_history` | net worth at the end of each month, by group, with what was saved and the PEA's market moves |
 | `projection` | net worth year by year over the next years, and when each family debt is cleared |

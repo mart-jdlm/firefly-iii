@@ -87,6 +87,7 @@ def main() -> None:
         "budgets": server.budgets(s, e),
         "upcoming_bills": server.upcoming_bills(35),
         "projection": server.projection(years=5),
+        "goals": server.goals(),
         "category_names": sorted(c["attributes"]["name"] for c in api_all("/categories")),
     }
     json.dump(facts, sys.stdout, ensure_ascii=False, indent=1)

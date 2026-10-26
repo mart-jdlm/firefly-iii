@@ -1,7 +1,8 @@
 """MCP server giving Claude Code access to Firefly III (see the README, "Assistant").
 
 Runs over stdio in the `assistant` container, launched on demand by Claude Code (.mcp.json).
-Needs FIREFLY_URL and FIREFLY_TOKEN; reads and edits the PEA positions in PEA_POSITIONS.
+Needs FIREFLY_URL and FIREFLY_TOKEN; reads and edits the PEA positions in PEA_POSITIONS and the
+savings goals in GOALS_FILE.
 """
 
 import calendar
@@ -19,6 +20,7 @@ from mcp.types import ToolAnnotations
 FIREFLY_URL = os.environ.get("FIREFLY_URL", "http://app:8080").rstrip("/")
 FIREFLY_TOKEN = os.environ["FIREFLY_TOKEN"]
 PEA_POSITIONS = os.environ.get("PEA_POSITIONS", "/patrimoine/pea.txt")
+GOALS_FILE = os.environ.get("GOALS_FILE", "/patrimoine/objectifs.json")
 
 # Asset accounts that are not money the user spends from: family debts (negative balance = what
 # the user owes) and the PEA (balance kept at market value by cron/valuation.sh).
@@ -45,7 +47,10 @@ Personal finances of one person in France, from their Firefly III instance. Amou
   for apply_rule, the transactions preview_rule lists) and wait for the user's go-ahead.
   Never use them on transactions in category "Valorisation": cron/valuation.sh manages those.
 - set_pea_position also changes the user's data (the PEA positions file): say the old and new
-  quantity first and wait for the go-ahead. The valuation books the gap at its next daily run."""
+  quantity first and wait for the go-ahead. The valuation books the gap at its next daily run.
+- Savings goals are balance targets on an account (a savings account reaching 3000, a family debt
+  reaching 0), with an optional deadline. goals shows progress at the pace of the last 3 months;
+  set_goal and remove_goal change the goals file: say what will change and wait for the go-ahead."""
 
 mcp = MCPServer("firefly", instructions=INSTRUCTIONS)
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
@@ -504,6 +509,108 @@ def set_pea_position(symbol: str, quantity: float, label: str | None = None) -> 
     os.replace(temp, PEA_POSITIONS)
     return {"symbol": symbol, "before": before, "after": quantity if quantity or symbol == "especes" else None,
             "positions": pea_positions()}
+
+
+def read_goals() -> list[dict]:
+    try:
+        with open(GOALS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+
+def write_goals(goals: list[dict]) -> None:
+    temp = GOALS_FILE + ".tmp"
+    with open(temp, "w", encoding="utf-8") as f:
+        json.dump(goals, f, ensure_ascii=False, indent=1)
+        f.write("\n")
+    os.replace(temp, GOALS_FILE)
+
+
+def balances_at(date: str | None = None) -> dict[str, float]:
+    params = {"date": date} if date else {}
+    return {a["attributes"]["name"]: money(a["attributes"]["current_balance"])
+            for a in api_all("/accounts", {"type": "asset", **params})}
+
+
+@mcp.tool(annotations=READ_ONLY)
+def goals() -> list[dict]:
+    """Savings goals with their progress, from patrimoine/objectifs.json.
+
+    A goal is a target balance on one account, with an optional deadline. pace is the monthly
+    change of the account's balance over about the last 3 months; eta is when the target is
+    reached at that pace; needed_monthly is what the account must gain each month to meet the
+    deadline. status: "reached", "on track", "late" or "no progress".
+    """
+    saved = read_goals()
+    if not saved:
+        return []
+    today = dt.date.today()
+    first = month_ends(3)[0]
+    now, before = balances_at(), balances_at(first.isoformat())
+    months_back = max((today - first).days / 30.44, 1)
+    result = []
+    for goal in saved:
+        account, target = goal["account"], goal["target"]
+        if account not in now:
+            result.append({"name": goal["name"], "error": f'No asset account named "{account}"'})
+            continue
+        balance = now[account]
+        remaining = money(target - balance)
+        pace = money((balance - before.get(account, balance)) / months_back)
+        deadline = goal.get("date")
+        months_left = (dt.date.fromisoformat(deadline) - today).days / 30.44 if deadline else None
+        row = {"name": goal["name"], "account": account, "balance": balance, "target": target,
+               "remaining": max(remaining, 0), "deadline": deadline, "pace": pace}
+        if remaining <= 0:
+            row["status"] = "reached"
+        else:
+            if pace > 0:
+                row["eta"] = (today + dt.timedelta(days=round(remaining / pace * 30.44))).isoformat()
+            if months_left is not None and months_left > 0:
+                row["needed_monthly"] = money(remaining / months_left)
+            if pace <= 0:
+                row["status"] = "no progress"
+            elif deadline is None or row["eta"] <= deadline:
+                row["status"] = "on track"
+            else:
+                row["status"] = "late"
+        result.append(row)
+    return result
+
+
+@mcp.tool(annotations=WRITE)
+def set_goal(name: str, account: str, target: float, date: str | None = None) -> list[dict]:
+    """Creates a savings goal, or replaces the one with the same name (patrimoine/objectifs.json).
+
+    The goal is reached when asset account `account` (exact name) holds `target` euros, e.g. 3000
+    on a savings account, or 0 on a family debt account whose balance is negative. date
+    (YYYY-MM-DD) is an optional deadline. Returns the goals with their progress.
+    """
+    if account not in balances_at():
+        raise ToolError(f'No asset account named "{account}"')
+    if date:
+        try:
+            dt.date.fromisoformat(date)
+        except ValueError as error:
+            raise ToolError("date must be YYYY-MM-DD") from error
+    goal = {"name": name, "account": account, "target": money(target)}
+    if date:
+        goal["date"] = date
+    saved = [g for g in read_goals() if g["name"] != name]
+    write_goals(saved + [goal])
+    return goals()
+
+
+@mcp.tool(annotations=WRITE)
+def remove_goal(name: str) -> list[dict]:
+    """Deletes the savings goal with that name. Returns the remaining goals with their progress."""
+    saved = read_goals()
+    kept = [g for g in saved if g["name"] != name]
+    if len(kept) == len(saved):
+        raise ToolError(f'No goal named "{name}"')
+    write_goals(kept)
+    return goals()
 
 
 @mcp.tool(annotations=WRITE)

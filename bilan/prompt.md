@@ -11,6 +11,9 @@ page et les tableaux sont faits par un gabarit : tu n'écris que les textes dema
 - "projection" prolonge le rythme des 12 derniers mois sur 5 ans ; ses hypothèses sont dedans.
   Elle part des soldes d'aujourd'hui ({{TODAY}}), pas de ceux de la fin du mois : un écart
   avec "accounts" vient de ce qui s'est passé depuis, ce n'est pas une anomalie.
+- "goals" : objectifs d'épargne (solde cible d'un compte, avec échéance éventuelle). "pace" est le
+  gain mensuel du compte sur environ 3 mois ; "status" vaut reached, on track, late ou no progress.
+  Le gabarit les affiche : ne les répète pas, mais signale ou conseille s'il y a un retard.
 - "transactions" liste tout le mois ; "uncategorised" celles sans catégorie.
 
 Consignes :

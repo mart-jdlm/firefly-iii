@@ -211,6 +211,35 @@ def upcoming(f: dict) -> str:
     return section("Prélèvements à venir", table(rows, ["left", "right"]))
 
 
+def goals(f: dict) -> str:
+    body = []
+    for g in f.get("goals", []):
+        if "error" in g:
+            continue
+        status, color = {
+            "reached": ("✓ Atteint", GOOD),
+            "on track": ("✓ Dans les temps", GOOD),
+            "late": ("! En retard", WARNING),
+            "no progress": ("! Pas d’avancée ces 3 derniers mois", WARNING),
+        }[g["status"]]
+        notes = []
+        if g.get("eta") and g["status"] != "reached":
+            notes.append(f'au rythme actuel : {month_name(g["eta"][:7])}')
+        if g.get("deadline"):
+            notes.append(f'échéance {month_name(g["deadline"][:7])}')
+        if g.get("needed_monthly") and g["status"] != "reached":
+            notes.append(f'il faudrait {eur(g["needed_monthly"])} par mois')
+        fraction = min(max(g["balance"] / g["target"], 0), 1) if g["target"] > 0 else 0
+        body.append(f"""<div style="padding:0 0 14px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+<td style="font-size:14px;color:{INK}">{escape(g["name"])}</td>
+<td align="right" style="font-size:14px;color:{INK_2};white-space:nowrap">{eur(g["balance"])} sur {eur(g["target"])}</td>
+</tr></table>
+{f'<div style="padding:5px 0 4px">{bar(fraction, color)}</div>' if g["target"] > 0 else ""}
+<div style="font-size:12px;color:{INK_2}">{status}{" · " + " · ".join(notes) if notes else ""}</div></div>""")
+    return section("Objectifs", "".join(body)) if body else ""
+
+
 def outlook(f: dict, comments: dict) -> str:
     p = f["projection"]
     a, last = p["assumptions"], p["years"][-1]
@@ -241,6 +270,7 @@ def html(f: dict, c: dict) -> str:
         section("À vérifier", bullets(c["watch"])) if c["watch"] else "",
         to_sort(f, c),
         upcoming(f),
+        goals(f),
         outlook(f, c),
     ]
     return f"""<!doctype html>
