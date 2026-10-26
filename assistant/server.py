@@ -49,7 +49,7 @@ Personal finances of one person in France, from their Firefly III instance. Amou
 - set_pea_position also changes the user's data (the PEA positions file): say the old and new
   quantity first and wait for the go-ahead. The valuation books the gap at its next daily run.
 - Savings goals are balance targets on an account (a savings account reaching 3000, a family debt
-  reaching 0), with an optional deadline. goals shows progress at the pace of the last 3 months;
+  reaching 0) or Firefly III piggy banks, with an optional deadline. goals shows progress at the pace of the last 3 months;
   set_goal and remove_goal change the goals file: say what will change and wait for the go-ahead."""
 
 mcp = MCPServer("firefly", instructions=INSTRUCTIONS)
@@ -533,34 +533,63 @@ def balances_at(date: str | None = None) -> dict[str, float]:
             for a in api_all("/accounts", {"type": "asset", **params})}
 
 
+def piggy_banks() -> dict[str, dict]:
+    """Firefly III piggy banks by name: current and target amount, accounts, and contributions."""
+    found = {}
+    for piggy in api_all("/piggy-banks"):
+        attr = piggy["attributes"]
+        events = [(e["attributes"]["created_at"][:10], money(e["attributes"]["amount"]))
+                  for e in api_all(f"/piggy-banks/{piggy['id']}/events")]
+        found[attr["name"]] = {
+            "balance": money(attr["current_amount"]),
+            "target": money(attr["target_amount"]),
+            "account": ", ".join(a["name"] for a in attr["accounts"]),
+            "events": events,
+        }
+    return found
+
+
 @mcp.tool(annotations=READ_ONLY)
 def goals() -> list[dict]:
     """Savings goals with their progress, from patrimoine/objectifs.json.
 
-    A goal is a target balance on one account, with an optional deadline. pace is the monthly
-    change of the account's balance over about the last 3 months; eta is when the target is
-    reached at that pace; needed_monthly is what the account must gain each month to meet the
-    deadline. status: "reached", "on track", "late" or "no progress".
+    A goal is either a target balance on one account, or a Firefly III piggy bank (its amount
+    against its target), with an optional deadline. pace is the monthly gain over about the last
+    3 months (at least 1 month is assumed); eta is when the target is reached at that pace;
+    needed_monthly is what must be added each month to meet the deadline. status: "reached",
+    "on track", "late" or "no progress".
     """
     saved = read_goals()
     if not saved:
         return []
     today = dt.date.today()
     first = month_ends(3)[0]
-    now, before = balances_at(), balances_at(first.isoformat())
     months_back = max((today - first).days / 30.44, 1)
+    now = before = piggies = None
     result = []
     for goal in saved:
-        account, target = goal["account"], goal["target"]
-        if account not in now:
-            result.append({"name": goal["name"], "error": f'No asset account named "{account}"'})
-            continue
-        balance = now[account]
+        if goal.get("piggy"):
+            piggies = piggies or piggy_banks()
+            piggy = piggies.get(goal["piggy"])
+            if piggy is None:
+                result.append({"name": goal["name"], "error": f'No piggy bank named "{goal["piggy"]}"'})
+                continue
+            source, balance = piggy["account"] + " (tirelire)", piggy["balance"]
+            target = goal.get("target") or piggy["target"]
+            pace = money(sum(a for d, a in piggy["events"] if d >= first.isoformat()) / months_back)
+        else:
+            now = now or balances_at()
+            before = before or balances_at(first.isoformat())
+            source, target = goal["account"], goal["target"]
+            if source not in now:
+                result.append({"name": goal["name"], "error": f'No asset account named "{source}"'})
+                continue
+            balance = now[source]
+            pace = money((balance - before.get(source, balance)) / months_back)
         remaining = money(target - balance)
-        pace = money((balance - before.get(account, balance)) / months_back)
         deadline = goal.get("date")
         months_left = (dt.date.fromisoformat(deadline) - today).days / 30.44 if deadline else None
-        row = {"name": goal["name"], "account": account, "balance": balance, "target": target,
+        row = {"name": goal["name"], "account": source, "balance": balance, "target": target,
                "remaining": max(remaining, 0), "deadline": deadline, "pace": pace}
         if remaining <= 0:
             row["status"] = "reached"
@@ -580,22 +609,41 @@ def goals() -> list[dict]:
 
 
 @mcp.tool(annotations=WRITE)
-def set_goal(name: str, account: str, target: float, date: str | None = None) -> list[dict]:
+def set_goal(
+    name: str,
+    account: str | None = None,
+    target: float | None = None,
+    date: str | None = None,
+    piggy_bank: str | None = None,
+) -> list[dict]:
     """Creates a savings goal, or replaces the one with the same name (patrimoine/objectifs.json).
 
-    The goal is reached when asset account `account` (exact name) holds `target` euros, e.g. 3000
-    on a savings account, or 0 on a family debt account whose balance is negative. date
-    (YYYY-MM-DD) is an optional deadline. Returns the goals with their progress.
+    Either account + target: reached when that asset account (exact name) holds `target` euros,
+    e.g. 3000 on a savings account, or 0 on a family debt account whose balance is negative.
+    Or piggy_bank (exact name of a Firefly III piggy bank): reached when it is full; target
+    overrides the piggy bank's own target. date (YYYY-MM-DD) is an optional deadline.
+    Returns the goals with their progress.
     """
-    if account not in balances_at():
-        raise ToolError(f'No asset account named "{account}"')
+    if bool(account) == bool(piggy_bank):
+        raise ToolError("Give either account (with target) or piggy_bank")
+    goal = {"name": name}
+    if piggy_bank:
+        if piggy_bank not in piggy_banks():
+            raise ToolError(f'No piggy bank named "{piggy_bank}"')
+        goal["piggy"] = piggy_bank
+        if target is not None:
+            goal["target"] = money(target)
+    else:
+        if target is None:
+            raise ToolError("target is required with an account")
+        if account not in balances_at():
+            raise ToolError(f'No asset account named "{account}"')
+        goal.update(account=account, target=money(target))
     if date:
         try:
             dt.date.fromisoformat(date)
         except ValueError as error:
             raise ToolError("date must be YYYY-MM-DD") from error
-    goal = {"name": name, "account": account, "target": money(target)}
-    if date:
         goal["date"] = date
     saved = [g for g in read_goals() if g["name"] != name]
     write_goals(saved + [goal])
