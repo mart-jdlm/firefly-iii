@@ -136,7 +136,7 @@ Setup:
 3. **Before the first run**, make sure the account's balance equals the total contributed so far, so that only real gains are booked as *Plus-values latentes*.
 4. `docker compose up -d --build cron`, then `docker exec firefly_iii_cron valuation.sh`.
 
-After buying or selling, update `pea.txt` (quantities and `especes`). `PEA_POSITIONS` and `PEA_ACCOUNT` override the file and account name.
+After buying or selling, tell the assistant (`set_pea_position`) or edit `pea.txt` yourself (quantities and `especes`). `PEA_POSITIONS` and `PEA_ACCOUNT` override the file and account name.
 
 ## Assistant
 
@@ -153,6 +153,7 @@ After buying or selling, update `pea.txt` (quantities and `especes`). `PEA_POSIT
 | `upcoming_bills` | expected bill payments in the next days |
 | `search_transactions` | transactions matching a Firefly III search query |
 | `pea_positions` | PEA holdings at today's prices, with weights |
+| `set_pea_position` ✏️ | sets the quantity held of a PEA position (or the cash) in `patrimoine/pea.txt` |
 | `net_worth_history` | net worth at the end of each month, by group, with what was saved and the PEA's market moves |
 | `projection` | net worth year by year over the next years, and when each family debt is cleared |
 | `update_transaction` ✏️ | changes a transaction's category, budget, tags, description or notes |
