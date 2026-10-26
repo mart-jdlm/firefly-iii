@@ -158,10 +158,16 @@ After buying or selling, update `pea.txt` (quantities and `especes`). `PEA_POSIT
 | `update_transaction` ✏️ | changes a transaction's category, budget, tags, description or notes |
 | `create_transaction` ✏️ | records a withdrawal, deposit or transfer (rules are applied) |
 | `set_budget` ✏️ | creates a budget or changes its automatic amount and period |
+| `rules` | every rule (triggers and actions), in the order Firefly III runs them |
+| `preview_rule` | past transactions a rule matches, without changing anything |
+| `save_rule` ✏️ | creates a rule, or replaces the triggers and actions of an existing one |
+| `apply_rule` ✏️ | runs a rule on past transactions |
 
 The ✏️ tools change data: Claude Code asks before each call (unless the tool is allowed in `/permissions`), and the server tells Claude to spell out the change first. None of them deletes anything.
 
 `net_worth_history` measures saving as the month's net worth change minus the PEA's unrealised gains, so money borrowed from family counts against it, unlike `monthly_history`. `projection` starts from today's balances and, unless told otherwise, assumes the user keeps saving the median of the last 12 months, paying into the PEA and repaying debts at the last 12 months' pace, with a 5 % yearly PEA return, 1.5 % on cash and savings and 2 % inflation. Each of these can be changed in the question ("and if I put 100 € a month in the PEA?").
+
+Rules are how transactions get filed for good: they run on every new transaction, imports included. The groups run in order, so rules in a later group (such as *Budgets*, which sets a budget from the category) see what the earlier ones set.
 
 Spending and income figures leave out the `Dette …` and `PEA …` accounts, so family debt adjustments and PEA valuations do not count as income or spending.
 

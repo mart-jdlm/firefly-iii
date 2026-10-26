@@ -141,15 +141,20 @@ def largest(f: dict) -> str:
 def budgets(f: dict) -> str:
     body = []
     for b in f["budgets"]:
-        if b["amount"] <= 0:
+        if b["amount"] > 0:
+            used = -b["spent"] / b["amount"]
+            status = (("✕ Dépassé", CRITICAL) if used > 1 else ("! Presque atteint", WARNING) if used >= 0.8
+                      else ("✓ Dans les clous", GOOD))
+            figures = f'{eur(-b["spent"])} sur {eur(b["amount"])}'
+        elif b["spent"] < 0:
+            used, status = 0, ("Pas de montant prévu ce mois-là", MUTED)
+            figures = eur(-b["spent"])
+        else:
             continue
-        used = -b["spent"] / b["amount"]
-        status = (("✕ Dépassé", CRITICAL) if used > 1 else ("! Presque atteint", WARNING) if used >= 0.8
-                  else ("✓ Dans les clous", GOOD))
         body.append(f"""<div style="padding:0 0 14px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
 <td style="font-size:14px;color:{INK}">{escape(b["name"])}</td>
-<td align="right" style="font-size:14px;color:{INK_2};white-space:nowrap">{eur(-b["spent"])} sur {eur(b["amount"])}</td>
+<td align="right" style="font-size:14px;color:{INK_2};white-space:nowrap">{figures}</td>
 </tr></table>
 <div style="padding:5px 0 4px">{bar(used, status[1])}</div>
 <div style="font-size:12px;color:{INK_2}">{status[0]}</div></div>""")
