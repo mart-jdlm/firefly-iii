@@ -155,7 +155,7 @@ After buying or selling, tell the assistant (`set_pea_position`) or edit `pea.tx
 | `search_transactions` | transactions matching a Firefly III search query |
 | `pea_positions` | PEA holdings at today's prices, with weights |
 | `goals` | savings goals (a target balance on an account, optional deadline) with progress, pace and estimated date |
-| `set_goal` ✏️ | creates or replaces a savings goal in `patrimoine/objectifs.json` |
+| `set_goal` ✏️ | creates or replaces a savings goal (an account balance target or a Firefly III piggy bank) in `patrimoine/objectifs.json` |
 | `remove_goal` ✏️ | deletes a savings goal |
 | `set_pea_position` ✏️ | sets the quantity held of a PEA position (or the cash) in `patrimoine/pea.txt` |
 | `net_worth_history` | net worth at the end of each month, by group, with what was saved and the PEA's market moves |
