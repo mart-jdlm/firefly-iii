@@ -104,11 +104,13 @@ services:
     build: ./assistant
     profiles: [assistant]
     env_file: .api.env
+    # Same user as the host's, so set_pea_position can edit patrimoine/pea.txt.
+    user: "1000:1000"
     environment:
       - TZ=Europe/Paris
       - FIREFLY_URL=http://app:8080
     volumes:
-      - ./patrimoine:/patrimoine:ro
+      - ./patrimoine:/patrimoine
 
 volumes:
   firefly_upload:

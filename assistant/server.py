@@ -1,7 +1,7 @@
 """MCP server giving Claude Code access to Firefly III (see the README, "Assistant").
 
 Runs over stdio in the `assistant` container, launched on demand by Claude Code (.mcp.json).
-Needs FIREFLY_URL and FIREFLY_TOKEN; reads the PEA positions from PEA_POSITIONS.
+Needs FIREFLY_URL and FIREFLY_TOKEN; reads and edits the PEA positions in PEA_POSITIONS.
 """
 
 import calendar
@@ -43,7 +43,9 @@ Personal finances of one person in France, from their Firefly III instance. Amou
 - update_transaction, create_transaction, set_budget, save_rule and apply_rule change the user's data.
   Before calling one, say exactly what will change (transaction or rule, field, old and new value;
   for apply_rule, the transactions preview_rule lists) and wait for the user's go-ahead.
-  Never use them on transactions in category "Valorisation": cron/valuation.sh manages those."""
+  Never use them on transactions in category "Valorisation": cron/valuation.sh manages those.
+- set_pea_position also changes the user's data (the PEA positions file): say the old and new
+  quantity first and wait for the go-ahead. The valuation books the gap at its next daily run."""
 
 mcp = MCPServer("firefly", instructions=INSTRUCTIONS)
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
@@ -456,6 +458,52 @@ def pea_positions() -> dict:
     for line in lines:
         line["weight"] = round(line["value"] / total, 4) if total else 0
     return {"positions": lines, "total": money(total)}
+
+
+@mcp.tool(annotations=WRITE)
+def set_pea_position(symbol: str, quantity: float, label: str | None = None) -> dict:
+    """Sets the quantity held of one PEA position in patrimoine/pea.txt (0 removes the line).
+
+    symbol is the Yahoo Finance symbol (CW8.PA for Paris; checked to be quoted in euros), or
+    "especes" for the PEA's cash in euros. quantity is the new total held, not the amount bought.
+    label is a free comment, kept from the existing line when omitted.
+    Returns the position before and after, and the positions file's total at today's prices.
+    """
+    if quantity < 0:
+        raise ToolError("quantity cannot be negative")
+    if symbol != "especes" and quantity:
+        try:
+            yahoo_price(symbol)
+        except (urllib.error.URLError, KeyError, TypeError, IndexError) as error:
+            raise ToolError(f"No euro price for {symbol} on Yahoo Finance ({error})") from error
+    with open(PEA_POSITIONS, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    index = next((i for i, raw in enumerate(lines)
+                  if raw.split(None, 1) and raw.split(None, 1)[0] == symbol), None)
+    before = None
+    old_label = ""
+    if index is not None:
+        parts = lines[index].split(None, 2)
+        before = float(parts[1])
+        old_label = parts[2].strip() if len(parts) > 2 else ""
+    label = old_label if label is None else label
+    if quantity == 0 and symbol != "especes":
+        if index is None:
+            raise ToolError(f"{symbol} is not in the positions file")
+        del lines[index]
+    else:
+        text = f"{symbol:<9}{quantity:g}" + (f"      {label}" if label else "")
+        if index is not None:
+            lines[index] = text
+        else:
+            cash = next((i for i, raw in enumerate(lines) if raw.startswith("especes")), len(lines))
+            lines.insert(cash, text)
+    temp = PEA_POSITIONS + ".tmp"
+    with open(temp, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    os.replace(temp, PEA_POSITIONS)
+    return {"symbol": symbol, "before": before, "after": quantity if quantity or symbol == "especes" else None,
+            "positions": pea_positions()}
 
 
 @mcp.tool(annotations=WRITE)
