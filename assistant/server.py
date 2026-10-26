@@ -37,8 +37,12 @@ Personal finances of one person in France, from their Firefly III instance. Amou
   from family); projection builds on it. A projection is an estimate: always state its assumptions
   and offer to rerun it with other ones (higher saving, PEA contributions, debt repayment, returns).
 - Dates are YYYY-MM-DD. Without dates, tools cover the current month.
-- update_transaction, create_transaction and set_budget change the user's data. Before calling one,
-  say exactly what will change (transaction, field, old and new value) and wait for the user's go-ahead.
+- Firefly III rules file new transactions automatically (category, budget, bill...). To fix how
+  transactions get filed for good, prefer a rule (rules, save_rule) over editing them one by one;
+  run preview_rule to see what a rule matches before apply_rule runs it on past transactions.
+- update_transaction, create_transaction, set_budget, save_rule and apply_rule change the user's data.
+  Before calling one, say exactly what will change (transaction or rule, field, old and new value;
+  for apply_rule, the transactions preview_rule lists) and wait for the user's go-ahead.
   Never use them on transactions in category "Valorisation": cron/valuation.sh manages those."""
 
 mcp = MCPServer("firefly", instructions=INSTRUCTIONS)
@@ -62,7 +66,8 @@ def api(path: str, params: dict | list | None = None, method: str = "GET", body:
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return json.load(response)
+            content = response.read()
+            return json.loads(content) if content else None
     except urllib.error.HTTPError as e:
         # Firefly III explains validation errors in the body; pass them on.
         raise ToolError(f"Firefly III answered {e.code}: {e.read().decode(errors='replace')[:1000]}") from e
@@ -385,12 +390,14 @@ def budgets(start: str | None = None, end: str | None = None) -> list[dict]:
             continue
         limits = api(f"/budgets/{b['id']}/limits", {"start": start, "end": end})["data"]
         amount = sum(float(l["attributes"]["amount"]) for l in limits)
-        spent = sum(float(s["sum"]) for l in limits for s in l["attributes"]["spent"])
+        # Everything spent in the budget over the period, including days no amount covers.
+        spent_in = api(f"/budgets/{b['id']}", {"start": start, "end": end})["data"]["attributes"]["spent"]
+        spent = sum(float(s["sum"]) for s in spent_in)
         result.append({
             "name": attr["name"],
             "amount": money(amount),
             "spent": money(spent),
-            "left": money(amount + spent),
+            "left": money(amount + spent) if limits else None,
             "auto_budget": attr["auto_budget_type"] and f'{attr["auto_budget_amount"]} {attr["auto_budget_period"]}',
         })
     return result
@@ -566,6 +573,102 @@ def set_budget(name: str, amount: float, period: str = "monthly", rollover: bool
         "name": attr["name"],
         "auto_budget": f'{attr["auto_budget_amount"]} {attr["auto_budget_period"]} ({attr["auto_budget_type"]})',
     }
+
+
+def rule_summary(rule: dict) -> dict:
+    attr = rule["attributes"]
+    return {
+        "title": attr["title"],
+        "group": attr["rule_group_title"],
+        "active": attr["active"],
+        "strict": attr["strict"],
+        "triggers": [{"type": t["type"], "value": t["value"], **({"prohibited": True} if t["prohibited"] else {})}
+                     for t in attr["triggers"]],
+        "actions": [{"type": a["type"], "value": a["value"]} for a in attr["actions"]],
+    }
+
+
+def rule_id(title: str) -> str:
+    for r in api_all("/rules"):
+        if r["attributes"]["title"] == title:
+            return r["id"]
+    raise ToolError(f"No rule named {title!r}")
+
+
+@mcp.tool(annotations=READ_ONLY)
+def rules() -> list[dict]:
+    """Every rule, in the order Firefly III runs them (group by group).
+
+    Rules run when a transaction is created (imports included). With strict, every trigger must
+    match; otherwise any one is enough.
+    """
+    groups = {g["attributes"]["title"]: g["attributes"]["order"] for g in api_all("/rule-groups")}
+    found = sorted(api_all("/rules"), key=lambda r: (groups.get(r["attributes"]["rule_group_title"], 0),
+                                                     r["attributes"]["order"]))
+    return [rule_summary(r) for r in found]
+
+
+@mcp.tool(annotations=WRITE)
+def save_rule(
+    title: str,
+    triggers: list[dict],
+    actions: list[dict],
+    group: str = "Catégorisation automatique",
+    strict: bool = False,
+    active: bool = True,
+) -> dict:
+    """Create a rule, or replace the triggers and actions of the rule with that title.
+
+    triggers: [{"type": ..., "value": ...}], optionally "prohibited": true to negate one. Common
+    types: description_contains, description_starts, category_is, budget_is, amount_more,
+    amount_less, source_account_is, destination_account_is, transaction_type (withdrawal...).
+    actions: [{"type": ..., "value": ...}]. Common types: set_category, set_budget, add_tag,
+    set_description, link_to_bill. Categories and budgets must already exist.
+    strict: every trigger must match (otherwise any one). The group is created if missing; groups
+    run in order, so a rule on category_is belongs in a group after the one that sets categories.
+    It applies to new transactions only; use preview_rule and apply_rule for past ones.
+    """
+    if not triggers or not actions:
+        raise ToolError("A rule needs at least one trigger and one action")
+    groups = {g["attributes"]["title"]: g["id"] for g in api_all("/rule-groups")}
+    if group not in groups:
+        groups[group] = api("/rule-groups", method="POST", body={"title": group, "active": True})["data"]["id"]
+    body = {
+        "title": title,
+        "rule_group_id": groups[group],
+        "trigger": "store-journal",
+        "active": active,
+        "strict": strict,
+        "triggers": [{"type": t["type"], "value": str(t["value"]), "active": True,
+                      "prohibited": bool(t.get("prohibited")), "stop_processing": False} for t in triggers],
+        "actions": [{"type": a["type"], "value": str(a["value"]), "active": True, "stop_processing": False}
+                    for a in actions],
+    }
+    existing = [r["id"] for r in api_all("/rules") if r["attributes"]["title"] == title]
+    if existing:
+        result = api(f"/rules/{existing[0]}", method="PUT", body=body)
+    else:
+        result = api("/rules", method="POST", body=body)
+    return rule_summary(result["data"])
+
+
+@mcp.tool(annotations=READ_ONLY)
+def preview_rule(title: str, start: str | None = None, end: str | None = None) -> list[dict]:
+    """Past transactions a rule matches between start and end (default: this month). Changes nothing."""
+    start, end = period(start, end)
+    found = api(f"/rules/{rule_id(title)}/test", {"start": start, "end": end})["data"]
+    return [t for group in found for t in journals(group)]
+
+
+@mcp.tool(annotations=WRITE)
+def apply_rule(title: str, start: str, end: str) -> dict:
+    """Run a rule's actions on the past transactions it matches between start and end.
+
+    Run preview_rule first and show the user what will change. Firefly III does the work in the
+    background, so changes can take a few seconds to show.
+    """
+    api(f"/rules/{rule_id(title)}/trigger", {"start": start, "end": end}, method="POST")
+    return {"rule": title, "start": start, "end": end, "status": "applied"}
 
 
 if __name__ == "__main__":
