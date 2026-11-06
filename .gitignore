@@ -1,11 +1,8 @@
 .env
-.db.env
-.importer.env
 *.sql
 *.sql.gz
 backups/
 .rclone/
-.backup.env
 .vscode/
 *.pem
 import/
@@ -13,3 +10,4 @@ import/
 patrimoine/*
 !patrimoine/*.example.txt
 bilans/
+__pycache__/

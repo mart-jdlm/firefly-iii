@@ -6,10 +6,10 @@ Docker Compose setup for a personal [Firefly III](https://www.firefly-iii.org/) 
 
 | Service        | Image                             | Container              | URL                         |
 |----------------|-----------------------------------|------------------------|-----------------------------|
-| `app`          | `fireflyiii/core` (pinned)        | `firefly_iii_core`     | https://serveur.taile33049.ts.net      |
+| `app`          | `fireflyiii/core` (pinned)        | `firefly_iii_core`     | https://$TS_HOST      |
 | `db`           | `mariadb` (pinned)                | `firefly_iii_db`       | internal only (port 3306)   |
-| `importer`     | `fireflyiii/data-importer` (pinned) | `firefly_iii_importer` | https://serveur.taile33049.ts.net:8181 |
-| `firefly-pico` | `cioraneanu/firefly-pico:dev` (digest) | `firefly_iii_pico`     | https://serveur.taile33049.ts.net:8282 |
+| `importer`     | `fireflyiii/data-importer` (pinned) | `firefly_iii_importer` | https://$TS_HOST:8181 |
+| `firefly-pico` | `cioraneanu/firefly-pico:dev` (digest) | `firefly_iii_pico`     | https://$TS_HOST:8282 |
 | `cron`         | built from `cron/`                | `firefly_iii_cron`     | none (backups + daily cron) |
 | `assistant`    | built from `assistant/`           | started by Claude Code | none (MCP over stdio)       |
 
@@ -22,7 +22,7 @@ tailscale serve --bg --https=8282 http://127.0.0.1:8282   # Firefly Pico
 tailscale serve status
 ```
 
-This needs MagicDNS, HTTPS certificates and Serve enabled on the tailnet, and `sudo tailscale set --operator=$USER` once. The serve config persists across reboots. The importer and Pico talk to Firefly III directly over the Docker network (`http://app:8080`). If the machine name changes, update `APP_URL` in `.env` and `VANITY_URL` / `APP_URL` in `docker-compose.yml`.
+This needs MagicDNS, HTTPS certificates and Serve enabled on the tailnet, and `sudo tailscale set --operator=$USER` once. The serve config persists across reboots. The importer and Pico talk to Firefly III directly over the Docker network (`http://app:8080`). If the machine name changes, update `TS_HOST` and `APP_URL` in `.env`, then `docker compose up -d`.
 
 Persistent data lives in named Docker volumes:
 
@@ -34,9 +34,8 @@ Persistent data lives in named Docker volumes:
 
 - `docker-compose.yml` — service definitions.
 - `.env` — Firefly III core configuration (app key, DB connection, timezone, mail, etc.). **Not committed**; see [First-time setup](#first-time-setup).
-- `.db.env` — MariaDB credentials, used by the `db` service. Must match `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` in `.env`. **Not committed**; copy `.db.env.example` and set a password.
-- `.importer.env` — `FIREFLY_III_ACCESS_TOKEN` for the Data Importer. **Not committed.**
-- `.backup.env`, `.rclone/` — restic password, Google Drive access and optional healthchecks.io URL for backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
+  It also holds what Compose passes to the other services: `TS_HOST` (the machine's Tailscale name), `FIREFLY_III_ACCESS_TOKEN` and `ENABLE_BANKING_APP_ID` (Data Importer), `RESTIC_REPOSITORY` / `RESTIC_PASSWORD` and the optional `HEALTHCHECK_URL`, `IMPORT_HEALTHCHECK_URL`, `KEEP_DAYS` (backups). The MariaDB container reuses `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD`.
+- `.rclone/` — Google Drive access for the off-site backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
 - `.enablebanking.pem` — Enable Banking private key for bank sync. **Not committed.**
 - `import/` — data importer configs used by the daily bank import. **Not committed.**
 - `.api.env` — `FIREFLY_TOKEN`, a personal access token for the PEA valuation. **Not committed.**
@@ -48,22 +47,21 @@ Persistent data lives in named Docker volumes:
 
 ## First-time setup
 
-1. Copy `.db.env.example` to `.db.env` and set `MYSQL_USER` / `MYSQL_PASSWORD`.
-2. Get the official example config and save it as `.env`:
+1. Get the official example config and save it as `.env`:
    ```bash
    curl -o .env https://raw.githubusercontent.com/firefly-iii/firefly-iii/main/.env.example
    ```
-3. Edit `.env`:
+2. Edit `.env`:
    - `APP_KEY` — exactly 32 random characters (e.g. `head /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32`).
    - `DB_HOST=db`, `DB_PORT=3306`, `DB_CONNECTION=mysql`, and `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` matching the `db` service.
-   - `APP_URL=https://serveur.taile33049.ts.net`, `TZ` (currently `Europe/Paris`), `TRUSTED_PROXIES=**` (needed behind `tailscale serve`).
-4. Start everything (and set up `tailscale serve`, see [Services](#services)):
+   - `TS_HOST=<machine>.<tailnet>.ts.net` (added at the end), `APP_URL=https://<TS_HOST>`, `TZ` (currently `Europe/Paris`), `TRUSTED_PROXIES=**` (needed behind `tailscale serve`).
+3. Start everything (and set up `tailscale serve`, see [Services](#services)):
    ```bash
    docker compose up -d
    ```
-5. Open Firefly III and register the first user (it becomes the admin).
-6. For the Data Importer: in Firefly III go to **Options → Profile → OAuth → Personal Access Tokens**, create a token, and put it in `.importer.env` as `FIREFLY_III_ACCESS_TOKEN=<token>`. Then `docker compose up -d importer`.
-7. For Firefly Pico: open it on port 8282 and log in with a personal access token as well.
+4. Open Firefly III and register the first user (it becomes the admin).
+5. For the Data Importer: in Firefly III go to **Options → Profile → OAuth → Personal Access Tokens**, create a token, and put it in `.env` as `FIREFLY_III_ACCESS_TOKEN=<token>`. Then `docker compose up -d importer`.
+6. For Firefly Pico: open it on port 8282 and log in with a personal access token as well.
 
 ## Day-to-day
 
@@ -120,9 +118,9 @@ Once a day (see [Scheduled jobs](#scheduled-jobs)) `import.sh` POSTs to the impo
 Setup:
 
 1. On the Enable Banking control panel, register a **production** application with redirect URL `https://<host>:8181/eb-callback`, keep the downloaded private key as `.enablebanking.pem` (mode 644: the importer runs as `www-data`), then *Activate by linking accounts*.
-2. In `.importer.env`: `ENABLE_BANKING_APP_ID`, `CAN_POST_AUTOIMPORT=true`, `IMPORT_DIR_ALLOWLIST=/import`, `ENABLE_MAIL_REPORT=true` and the `MAIL_*` settings (same Gmail account as Firefly III, plus `MAIL_DESTINATION` and `MAIL_FROM_ADDRESS`). In `.env`: `AUTO_IMPORT_SECRET` (32 random characters).
-3. Run one import by hand in the importer UI and download its configuration into `import/<name>.json`. Set its `date_range_number` to `5`.
-4. Optional: `IMPORT_HEALTHCHECK_URL` in `.backup.env` for an alert when the daily import itself fails.
+2. In `.env`: `ENABLE_BANKING_APP_ID` and `AUTO_IMPORT_SECRET` (32 random characters). The importer's `CAN_POST_AUTOIMPORT`, `IMPORT_DIR_ALLOWLIST` and `ENABLE_MAIL_REPORT` are set in `docker-compose.yml`; for e-mailed import reports, set `ENABLE_MAIL_REPORT=true` there and add the `MAIL_*` settings (same Gmail account as Firefly III, plus `MAIL_DESTINATION` and `MAIL_FROM_ADDRESS`).
+3. Run one import by hand in the importer UI and download its configuration into `import/<name>.json`. Set its `date_range` to `partial` and `date_range_number` to `5`, otherwise it keeps asking for the fixed dates it was downloaded with (the bank then refuses it with a misleading "more than 90 days" error).
+4. Optional: `IMPORT_HEALTHCHECK_URL` in `.env` for an alert when the daily import itself fails.
 
 **Bank consent expires** (90 days for Crédit Agricole de Paris). To renew: run an import in the importer UI again, download the new configuration and replace the file in `import/`.
 
@@ -195,10 +193,10 @@ It runs on the host, not in a container, so it uses the Claude subscription of t
 Setup (once):
 
 1. Install Claude Code in `~/.local/bin` (`curl -fsSL https://claude.ai/install.sh | bash`) and log in once (`claude`).
-2. Enable the timer (the units stay in the repository; they expect it in `~/firefly-iii`):
+2. Enable the timer (the units stay in the repository; they expect it in `~/server/firefly-iii`):
    ```bash
-   systemctl --user link ~/firefly-iii/bilan/firefly-bilan.service
-   systemctl --user enable --now ~/firefly-iii/bilan/firefly-bilan.timer
+   systemctl --user link ~/server/firefly-iii/bilan/firefly-bilan.service
+   systemctl --user enable --now ~/server/firefly-iii/bilan/firefly-bilan.timer
    ```
 
 By hand: `bilan/bilan.sh` (last month), `bilan/bilan.sh 2026-09` (another month), `FORCE=1 bilan/bilan.sh` (rebuild an existing review), `NO_MAIL=1 bilan/bilan.sh` (no e-mail). Logs: `journalctl --user -u firefly-bilan`.
@@ -208,9 +206,9 @@ By hand: `bilan/bilan.sh` (last month), `bilan/bilan.sh 2026-09` (another month)
 Each day (see [Scheduled jobs](#scheduled-jobs)) `backup.sh`:
 
 1. dumps the database to `backups/firefly_YYYY-MM-DD.sql.gz` and archives the `firefly_upload` volume to `backups/uploads_YYYY-MM-DD.tar.gz`, keeping 14 days locally;
-2. if `.backup.env` sets `RESTIC_REPOSITORY`, sends both files to an encrypted [restic](https://restic.net/) repository on Google Drive (through rclone), keeping 7 daily, 4 weekly and 12 monthly snapshots.
+2. if `.env` sets `RESTIC_REPOSITORY`, sends both files to an encrypted [restic](https://restic.net/) repository on Google Drive (through rclone), keeping 7 daily, 4 weekly and 12 monthly snapshots.
 
-`backups/`, `*.sql`, `*.sql.gz`, `.backup.env` and `.rclone/` are git-ignored.
+`backups/`, `*.sql`, `*.sql.gz` and `.rclone/` are git-ignored.
 
 ### Off-site setup (once)
 
@@ -220,7 +218,7 @@ Each day (see [Scheduled jobs](#scheduled-jobs)) `backup.sh`:
    docker run --rm -it --user $(id -u):$(id -g) --network host -v "$PWD/.rclone":/config/rclone \
      rclone/rclone:1.71.2 config create gdrive drive scope=drive.file
    ```
-2. Create `.backup.env` (`chmod 600`):
+2. Add to `.env`:
    ```
    RESTIC_REPOSITORY=rclone:gdrive:firefly-backup
    RESTIC_PASSWORD=<long random password>
@@ -230,7 +228,7 @@ Each day (see [Scheduled jobs](#scheduled-jobs)) `backup.sh`:
 
 ### Failure alerts (optional)
 
-Add a healthchecks.io ping URL to `.backup.env`:
+Add a healthchecks.io ping URL to `.env`:
 
 ```
 HEALTHCHECK_URL=https://hc-ping.com/<uuid>
@@ -247,7 +245,7 @@ gunzip -c backups/firefly_YYYY-MM-DD.sql.gz \
   | docker exec -i firefly_iii_db sh -c 'mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
 ```
 
-From Google Drive (needs `.rclone/` and `.backup.env`):
+From Google Drive (needs `.rclone/` and the `RESTIC_*` lines of `.env`):
 
 ```bash
 docker compose run --rm cron restic snapshots
@@ -266,5 +264,5 @@ docker run --rm -v firefly-iii_firefly_upload:/data -v "$PWD/backups":/backup al
 
 ## Security notes
 
-- Secrets live only in the git-ignored `.env`, `.db.env`, `.importer.env`, `.backup.env` and `.rclone/`. Never put them back in `docker-compose.yml`.
+- Secrets live only in the git-ignored `.env` and `.rclone/`. Never put them back in `docker-compose.yml`.
 - Ports 8080, 8181 and 8282 are bound to `127.0.0.1`: they are not reachable from the LAN, only through `tailscale serve`. Keep it that way.

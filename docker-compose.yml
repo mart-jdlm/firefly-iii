@@ -1,8 +1,8 @@
 services:
   # Ports are bound to localhost only; `tailscale serve` publishes them over HTTPS on the tailnet:
-  # https://serveur.taile33049.ts.net (app), :8181 (importer), :8282 (firefly-pico).
+  # https://$TS_HOST (app), :8181 (importer), :8282 (firefly-pico). TS_HOST is set in .env.
   app:
-    image: fireflyiii/core:version-6.7.3
+    image: fireflyiii/core:version-6.7.9
     container_name: firefly_iii_core
     restart: always
     ports:
@@ -18,8 +18,12 @@ services:
     image: mariadb:12.3.3
     container_name: firefly_iii_db
     restart: always
-    env_file: .db.env
     environment:
+      # The same credentials as Firefly III's DB_* in .env.
+      - MYSQL_USER=${DB_USERNAME}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=${DB_DATABASE}
+      - MYSQL_RANDOM_ROOT_PASSWORD=yes
       # Upgrade system tables automatically when the MariaDB version changes.
       - MARIADB_AUTO_UPGRADE=1
     healthcheck:
@@ -32,20 +36,24 @@ services:
       - firefly_iii_db:/var/lib/mysql
 
   importer:
-    image: fireflyiii/data-importer:version-2.3.4
+    image: fireflyiii/data-importer:version-2.3.5
     container_name: firefly_iii_importer
     restart: always
     ports:
       - "127.0.0.1:8181:8080"
     depends_on:
       - app
-    env_file: .importer.env
     environment:
       - FIREFLY_III_URL=http://app:8080
-      - VANITY_URL=https://serveur.taile33049.ts.net
-      - APP_URL=https://serveur.taile33049.ts.net:8181
+      - FIREFLY_III_ACCESS_TOKEN=${FIREFLY_III_ACCESS_TOKEN}
+      - VANITY_URL=https://${TS_HOST}
+      - APP_URL=https://${TS_HOST}:8181
+      - CAN_POST_AUTOIMPORT=true
+      - IMPORT_DIR_ALLOWLIST=/import
+      - ENABLE_MAIL_REPORT=false
       - TRUSTED_PROXIES=**
-      # Enable Banking (bank sync): app ID in .importer.env, private key from the git-ignored file below.
+      # Enable Banking (bank sync): app ID in .env, private key from the git-ignored file below.
+      - ENABLE_BANKING_APP_ID=${ENABLE_BANKING_APP_ID}
       - ENABLE_BANKING_PRIVATE_KEY=/run/secrets/enablebanking.pem
       # Nightly import: the cron service POSTs to /autoimport with the configs in ./import.
       - AUTO_IMPORT_SECRET=${AUTO_IMPORT_SECRET}
@@ -77,15 +85,21 @@ services:
     container_name: firefly_iii_cron
     restart: always
     env_file:
-      - .db.env
-      - path: .backup.env
-        required: false
       # FIREFLY_TOKEN, a personal access token for the PEA valuation.
       - path: .api.env
         required: false
     environment:
       - TZ=Europe/Paris
       - STATIC_CRON_TOKEN=${STATIC_CRON_TOKEN}
+      - MYSQL_USER=${DB_USERNAME}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=${DB_DATABASE}
+      # Off-site backup (restic); optional healthchecks.io pings and local retention in days.
+      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY:-}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD:-}
+      - HEALTHCHECK_URL=${HEALTHCHECK_URL:-}
+      - IMPORT_HEALTHCHECK_URL=${IMPORT_HEALTHCHECK_URL:-}
+      - KEEP_DAYS=${KEEP_DAYS:-14}
       - AUTO_IMPORT_SECRET=${AUTO_IMPORT_SECRET}
       - RCLONE_CONFIG=/config/rclone/rclone.conf
       - RESTIC_CACHE_DIR=/tmp/restic-cache
