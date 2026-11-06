@@ -153,6 +153,25 @@ def compose(stack: str, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["docker", "compose", *args], cwd=STACKS[stack], text=True, capture_output=True)
 
 
+def stale_services(stack: str) -> list[str]:
+    """Services whose container runs an older image than the one their tag now points to.
+
+    `docker compose up -d` does not notice a moving tag (nextcloud:33-apache) that was re-pulled."""
+    config = json.loads(compose(stack, "config", "--format", "json").stdout)
+    stale = []
+    for name, service in config["services"].items():
+        container = compose(stack, "ps", "-q", name).stdout.strip()
+        if not container or not service.get("image"):
+            continue
+        running = subprocess.run(["docker", "inspect", "-f", "{{.Image}}", container],
+                                 capture_output=True, text=True).stdout.strip()
+        current = subprocess.run(["docker", "image", "inspect", "-f", "{{.Id}}", service["image"]],
+                                 capture_output=True, text=True).stdout.strip()
+        if current and running != current:
+            stale.append(name)
+    return stale
+
+
 def healthy(stack: str) -> bool:
     for _ in range(36):  # up to 3 minutes
         time.sleep(5)
@@ -193,6 +212,9 @@ def apply() -> None:
         result = compose(item["stack"], "pull")
         if result.returncode == 0:
             result = compose(item["stack"], "up", "-d", "--build")
+        if result.returncode == 0 and (stale := stale_services(item["stack"])):
+            print(f"Recréation de : {', '.join(stale)}")
+            result = compose(item["stack"], "up", "-d", "--force-recreate", *stale)
         if result.returncode == 0 and healthy(item["stack"]):
             print("OK, tout est en bonne santé.")
             if item["how"] == "pin" and item["stack"] == "firefly":
