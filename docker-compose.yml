@@ -1,7 +1,22 @@
+# Every container drops all Linux capabilities and cannot gain new ones; each service adds back
+# only what its entrypoint needs (chown the volumes, switch to its unprivileged user).
+x-hardened: &hardened
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 services:
   # Ports are bound to localhost only; `tailscale serve` publishes them over HTTPS on the tailnet:
   # https://$TS_HOST (app), :8181 (importer), :8282 (firefly-pico). TS_HOST is set in .env.
   app:
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     image: fireflyiii/core:version-6.7.9
     container_name: firefly_iii_core
     restart: always
@@ -15,6 +30,13 @@ services:
         condition: service_healthy
 
   db:
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     image: mariadb:12.3.3
     container_name: firefly_iii_db
     restart: always
@@ -36,6 +58,13 @@ services:
       - firefly_iii_db:/var/lib/mysql
 
   importer:
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
     image: fireflyiii/data-importer:version-2.3.5
     container_name: firefly_iii_importer
     restart: always
@@ -65,6 +94,15 @@ services:
       - ./import:/import:ro
 
   firefly-pico:
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+      - NET_BIND_SERVICE
+      - KILL
     image: cioraneanu/firefly-pico:dev@sha256:acdce72b2fa43e673bfebc3fb105620bc009bcc64b7022bbeddc5e33eb872b0f
     container_name: firefly_iii_pico
     restart: always
@@ -80,6 +118,11 @@ services:
   # Scheduled jobs (see cron/daily.sh): bank import, PEA valuation, backup, Firefly III's daily cron.
   # STATIC_CRON_TOKEN is read from .env by Compose.
   cron:
+    <<: *hardened
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
     build: ./cron
     init: true
     container_name: firefly_iii_cron
