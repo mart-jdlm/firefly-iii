@@ -1,6 +1,6 @@
 services:
   # Ports are bound to localhost only; `tailscale serve` publishes them over HTTPS on the tailnet:
-  # https://fedora.taile33049.ts.net (app), :8181 (importer), :8282 (firefly-pico).
+  # https://serveur.taile33049.ts.net (app), :8181 (importer), :8282 (firefly-pico).
   app:
     image: fireflyiii/core:version-6.7.3
     container_name: firefly_iii_core
@@ -42,8 +42,8 @@ services:
     env_file: .importer.env
     environment:
       - FIREFLY_III_URL=http://app:8080
-      - VANITY_URL=https://fedora.taile33049.ts.net
-      - APP_URL=https://fedora.taile33049.ts.net:8181
+      - VANITY_URL=https://serveur.taile33049.ts.net
+      - APP_URL=https://serveur.taile33049.ts.net:8181
       - TRUSTED_PROXIES=**
       # Enable Banking (bank sync): app ID in .importer.env, private key from the git-ignored file below.
       - ENABLE_BANKING_PRIVATE_KEY=/run/secrets/enablebanking.pem

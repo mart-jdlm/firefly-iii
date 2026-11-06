@@ -6,10 +6,10 @@ Docker Compose setup for a personal [Firefly III](https://www.firefly-iii.org/) 
 
 | Service        | Image                             | Container              | URL                         |
 |----------------|-----------------------------------|------------------------|-----------------------------|
-| `app`          | `fireflyiii/core` (pinned)        | `firefly_iii_core`     | https://fedora.taile33049.ts.net      |
+| `app`          | `fireflyiii/core` (pinned)        | `firefly_iii_core`     | https://serveur.taile33049.ts.net      |
 | `db`           | `mariadb` (pinned)                | `firefly_iii_db`       | internal only (port 3306)   |
-| `importer`     | `fireflyiii/data-importer` (pinned) | `firefly_iii_importer` | https://fedora.taile33049.ts.net:8181 |
-| `firefly-pico` | `cioraneanu/firefly-pico:dev` (digest) | `firefly_iii_pico`     | https://fedora.taile33049.ts.net:8282 |
+| `importer`     | `fireflyiii/data-importer` (pinned) | `firefly_iii_importer` | https://serveur.taile33049.ts.net:8181 |
+| `firefly-pico` | `cioraneanu/firefly-pico:dev` (digest) | `firefly_iii_pico`     | https://serveur.taile33049.ts.net:8282 |
 | `cron`         | built from `cron/`                | `firefly_iii_cron`     | none (backups + daily cron) |
 | `assistant`    | built from `assistant/`           | started by Claude Code | none (MCP over stdio)       |
 
@@ -56,7 +56,7 @@ Persistent data lives in named Docker volumes:
 3. Edit `.env`:
    - `APP_KEY` — exactly 32 random characters (e.g. `head /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32`).
    - `DB_HOST=db`, `DB_PORT=3306`, `DB_CONNECTION=mysql`, and `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` matching the `db` service.
-   - `APP_URL=https://fedora.taile33049.ts.net`, `TZ` (currently `Europe/Paris`), `TRUSTED_PROXIES=**` (needed behind `tailscale serve`).
+   - `APP_URL=https://serveur.taile33049.ts.net`, `TZ` (currently `Europe/Paris`), `TRUSTED_PROXIES=**` (needed behind `tailscale serve`).
 4. Start everything (and set up `tailscale serve`, see [Services](#services)):
    ```bash
    docker compose up -d
