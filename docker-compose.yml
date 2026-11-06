@@ -92,6 +92,8 @@ services:
     volumes:
       - ./.enablebanking.pem:/run/secrets/enablebanking.pem:ro
       - ./import:/import:ro
+      # Shared read-only with the cron service, which reads the log to tell whether an import worked.
+      - importer_logs:/var/www/html/storage/logs
 
   firefly-pico:
     <<: *hardened
@@ -151,6 +153,7 @@ services:
       - ./backups:/backups
       - ./.rclone:/config/rclone
       - firefly_upload:/uploads:ro
+      - importer_logs:/importer-logs:ro
       - ./patrimoine:/patrimoine:ro
     depends_on:
       - app
@@ -170,6 +173,7 @@ services:
       - ./patrimoine:/patrimoine
 
 volumes:
+  importer_logs:
   firefly_upload:
   firefly_iii_db:
   pico_data:

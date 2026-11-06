@@ -115,6 +115,8 @@ The Data Importer pulls transactions from the bank through [Enable Banking](http
 
 Once a day (see [Scheduled jobs](#scheduled-jobs)) `import.sh` POSTs to the importer's `/autoimport`, which runs each config in `import/` (last 5 days; transactions already in Firefly III are recognised by the bank's ID and skipped). Rules are applied on import. The importer e-mails a report only when it has something to say: new transactions, or errors such as an expired consent.
 
+The importer answers "Seems to have worked" even when an import fails, so `import.sh` reads the importer's own log (the `importer_logs` volume, mounted read-only in `cron`) and treats any `ERROR` line written during the run as a failure, except the "Zero transactions" messages an empty period produces. A failed import is retried about 2 hours later and shows in `docker logs firefly_iii_cron`. Duplicates are avoided with `duplicate_detection_method: "cell"` in the import configs: the bank's transaction ID is looked up in Firefly III before anything is added.
+
 Setup:
 
 1. On the Enable Banking control panel, register a **production** application with redirect URL `https://<host>:8181/eb-callback`, keep the downloaded private key as `.enablebanking.pem` (mode 644: the importer runs as `www-data`), then *Activate by linking accounts*.
