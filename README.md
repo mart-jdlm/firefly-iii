@@ -75,11 +75,16 @@ docker compose down                  # stop (volumes are kept)
 
 ### Updates
 
-Every image has a fixed version in `docker-compose.yml` (Pico follows its `dev` tag, pinned by digest), so `pull` never changes anything on its own. [Renovate](https://docs.renovatebot.com/) ([renovate.json](renovate.json)) opens a pull request on GitHub for each new version, on Saturday mornings. To apply one:
+Every image has a fixed version in `docker-compose.yml` (Pico follows its `dev` tag, pinned by digest), so `pull` never changes anything on its own. [update/update.py](update/update.py) (standard library only, run on the host) finds and applies new versions, for this stack and for Nextcloud (`../nextcloud`):
 
-1. Read the release notes linked in the PR.
-2. Back up: `docker exec firefly_iii_cron backup.sh`.
-3. Merge the PR, then `git pull && docker compose pull && docker compose up -d --build`.
+```bash
+python3 update/update.py check          # what has a newer version
+python3 update/update.py apply          # update, one image at a time, asking each time
+```
+
+- **Notification:** a systemd user timer ([update/firefly-update.timer](update/firefly-update.timer)) runs `check --mail` every Saturday at 08:00 and e-mails the list, once per set of versions. Enable it with `bash update/install-timer.sh`. The mail uses the `MAIL_*` settings of `.env` (set them with `bash update/configurer-mail.sh`), to `MAIL_FROM` or `BILAN_TO`.
+- **`apply`:** backs Firefly III up first (`backup.sh`), edits `docker-compose.yml` (or pulls the moving tag for Nextcloud), runs `docker compose up -d --build`, waits until every container is healthy and the web page answers, and goes back to the previous version if it does not. A successful Firefly III update is committed (`git push origin master` to send it). It finds: Firefly III and the Data Importer (GitHub releases), MariaDB (same major), Pico (new `dev` build), and new builds of the moving Nextcloud, Redis and MariaDB tags.
+- **New major versions** (MariaDB 13, Nextcloud 34/35, Redis 8...) are only reported, never applied: read the release notes first and go one major at a time. Nextcloud is backed up every night at 03:30 by the root timer `nextcloud-backup.timer`; check that the last run succeeded before updating it.
 
 MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its version changes.
 

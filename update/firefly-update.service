@@ -1,0 +1,8 @@
+[Unit]
+Description=Check for new container image versions and mail them (see the README, "Updates")
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# The unit is linked from the repository, so %h is the home directory.
+ExecStart=/usr/bin/python3 %h/server/firefly-iii/update/update.py check --mail

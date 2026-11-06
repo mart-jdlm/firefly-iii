@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly check for new container image versions
+
+[Timer]
+# Saturday morning, or at the next login if the machine was off. update.py mails once per set of versions.
+OnCalendar=Sat 08:00
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target
