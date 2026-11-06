@@ -88,6 +88,15 @@ python3 update/update.py apply          # update, one image at a time, asking ea
 
 MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its version changes.
 
+### Monitoring
+
+Two scripts in [watchdog/](watchdog/) (standard library only, run on the host by systemd user timers) tell you when something silently stops working. They mail through the `MAIL_*` settings of `.env`. Enable both with `bash watchdog/install-timers.sh`.
+
+- [watchdog.py](watchdog/watchdog.py), every hour: every container up and healthy, the web pages (Firefly III, importer, Pico, Nextcloud) answering, the Firefly III backup less than 30 hours old, the last nightly Nextcloud backup (`nextcloud-backup.service`) successful and recent, no cron job failing for more than 6 hours (`daily.sh` leaves a `backups/.state/<job>.failed` marker), disk under 85 %. It mails once per set of problems, and once more when they are gone. `python3 watchdog/watchdog.py --print` only prints.
+- [restore_test.py](watchdog/restore_test.py), on the 1st of each month: restores the latest dump from the restic repository on Google Drive into a throwaway MariaDB container, checks that the transactions and accounts are there and close to the live database, and mails the result either way. `python3 watchdog/restore_test.py --print` runs it now (about 5 minutes).
+
+It cannot warn you when the machine itself is off or offline: nothing runs then. Add an external ping (for example healthchecks.io, through `HEALTHCHECK_URL` and `IMPORT_HEALTHCHECK_URL` in `.env`) if you want that.
+
 ### Scheduled jobs
 
 The `cron` service (built from [cron/](cron/)) runs [cron/daily.sh](cron/daily.sh) when it starts and then every hour (`Europe/Paris` time). It runs, in order, each daily job that has not run in the last 20 hours:

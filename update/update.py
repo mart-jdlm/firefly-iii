@@ -134,19 +134,25 @@ def read_env(path: Path) -> dict[str, str]:
     return env
 
 
-def send_mail(items: list[dict]) -> None:
+def send_text(subject: str, body: str) -> None:
+    """Plain-text e-mail to MAIL_FROM (or BILAN_TO), through the MAIL_* settings of .env."""
     env = read_env(ROOT / ".env")
     message = EmailMessage()
-    message["Subject"] = f"Serveur : {len(items)} mise(s) à jour disponible(s)"
+    message["Subject"] = subject
     message["From"] = env["MAIL_FROM"]
     message["To"] = env.get("BILAN_TO") or env["MAIL_FROM"]
-    message.set_content("\n".join(["Nouvelles versions disponibles :", "", *map(describe, items), "",
-                                   "Pour appliquer les mises à jour (sauvegarde, test de santé, retour arrière) :",
-                                   f"  python3 {Path(__file__).resolve()} apply"]))
+    message.set_content(body)
     with smtplib.SMTP(env["MAIL_HOST"], int(env.get("MAIL_PORT", 587)), timeout=60) as smtp:
         smtp.starttls()
         smtp.login(env["MAIL_USERNAME"], env["MAIL_PASSWORD"])
         smtp.send_message(message)
+
+
+def send_mail(items: list[dict]) -> None:
+    send_text(f"Serveur : {len(items)} mise(s) à jour disponible(s)",
+              "\n".join(["Nouvelles versions disponibles :", "", *map(describe, items), "",
+                         "Pour appliquer les mises à jour (sauvegarde, test de santé, retour arrière) :",
+                         f"  python3 {Path(__file__).resolve()} apply"]))
 
 
 def compose(stack: str, *args: str) -> subprocess.CompletedProcess:

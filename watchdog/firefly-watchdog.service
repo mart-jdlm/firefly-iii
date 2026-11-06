@@ -1,0 +1,7 @@
+[Unit]
+Description=Server health check, mails on problems (see the README, "Monitoring")
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/server/firefly-iii/watchdog/watchdog.py

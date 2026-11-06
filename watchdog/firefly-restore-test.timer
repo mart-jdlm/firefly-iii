@@ -1,0 +1,10 @@
+[Unit]
+Description=Monthly restore test of the off-site backup
+
+[Timer]
+# The 1st of each month at 09:00 (right after the nightly jobs), or at the next login.
+OnCalendar=*-*-01 09:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

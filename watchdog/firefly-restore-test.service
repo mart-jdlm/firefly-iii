@@ -1,0 +1,8 @@
+[Unit]
+Description=Monthly restore test of the off-site backup (see the README, "Monitoring")
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/server/firefly-iii/watchdog/restore_test.py
+TimeoutStartSec=45min

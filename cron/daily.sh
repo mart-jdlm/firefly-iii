@@ -23,8 +23,11 @@ run() {
   echo "== $name"
   if "$@"; then
     touch "$STATE/$name"
+    rm -f "$STATE/$name.failed"
   else
     echo "$name failed, retrying in about 2 hours"
+    # Marker for watchdog/watchdog.py: it alerts when a job keeps failing.
+    [ -e "$STATE/$name.failed" ] || touch "$STATE/$name.failed"
     # Pretend it ran 18 hours ago, so it is due again in 2.
     touch -d "$(date -d "@$(($(date +%s) - 64800))" '+%Y-%m-%d %H:%M:%S')" "$STATE/$name"
   fi
