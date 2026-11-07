@@ -39,11 +39,15 @@ def hours_since(timestamp: float) -> float:
 def problems() -> list[str]:
     found = []
     ps = subprocess.run(["docker", "ps", "-a", "--format", "{{.Names}}|{{.Status}}"], capture_output=True, text=True)
-    status = dict(line.split("|", 1) for line in ps.stdout.splitlines() if "|" in line)
-    for name in CONTAINERS:
-        text = status.get(name, "absent")
-        if not text.startswith("Up") or "unhealthy" in text or "Restarting" in text:
-            found.append(f"Conteneur {name} : {text}")
+    if ps.returncode:
+        # One message, not nine "absent": the check could not ask Docker (daemon stopped, no permission).
+        found.append(f"Docker inaccessible depuis la surveillance : {ps.stderr.strip()[:120]}")
+    else:
+        status = dict(line.split("|", 1) for line in ps.stdout.splitlines() if "|" in line)
+        for name in CONTAINERS:
+            text = status.get(name, "absent")
+            if not text.startswith("Up") or "unhealthy" in text or "Restarting" in text:
+                found.append(f"Conteneur {name} : {text}")
     for name, url in PAGES.items():
         try:
             code = urllib.request.urlopen(url, timeout=20).status
@@ -60,19 +64,13 @@ def problems() -> list[str]:
             found.append(f"La tâche « {marker.stem} » échoue depuis {hours_since(marker.stat().st_mtime):.0f} h "
                          "(voir : docker logs firefly_iii_cron)")
 
-    nextcloud = subprocess.run(["systemctl", "show", "nextcloud-backup.service", "-p", "Result", "-p", "ExecMainExitTimestamp"],
-                               capture_output=True, text=True).stdout
-    values = dict(line.split("=", 1) for line in nextcloud.splitlines() if "=" in line)
-    if values.get("Result") != "success":
-        found.append(f"Dernière sauvegarde Nextcloud : {values.get('Result', 'inconnue')}")
-    else:
-        try:
-            finished = datetime.strptime(values["ExecMainExitTimestamp"].split(" ", 1)[1].rsplit(" ", 1)[0],
-                                         "%Y-%m-%d %H:%M:%S").timestamp()
-            if hours_since(finished) > BACKUP_MAX_HOURS:
-                found.append("La sauvegarde Nextcloud n'a pas tourné depuis plus de 30 h")
-        except (KeyError, ValueError, IndexError):
-            found.append("Date de la dernière sauvegarde Nextcloud illisible")
+    # The root script /usr/local/sbin/nextcloud-backup.sh touches this file once the restic upload is done.
+    # (systemd's own "Result" is reset by a reboot and says nothing about a run cut short by a crash.)
+    marker = Path("/var/backups/nextcloud/.last-success")
+    if not marker.exists():
+        found.append("Aucune sauvegarde Nextcloud réussie enregistrée (fichier-témoin absent)")
+    elif hours_since(marker.stat().st_mtime) > BACKUP_MAX_HOURS:
+        found.append(f"La dernière sauvegarde Nextcloud réussie date de {hours_since(marker.stat().st_mtime):.0f} h")
 
     usage = shutil.disk_usage("/")
     if usage.used / usage.total * 100 > DISK_MAX_PERCENT:
