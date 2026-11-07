@@ -256,6 +256,13 @@ HEALTHCHECK_URL=https://hc-ping.com/<uuid>
 
 `backup.sh` reports its exit code to it after every run. Backups run whenever the machine is on (see [Scheduled jobs](#scheduled-jobs)), not at a fixed time, so on healthchecks.io use a **simple** schedule: period 1 day, grace time 2 days. You get an e-mail when a run fails, or when no backup has happened for 3 days. Apply with `docker compose up -d cron`.
 
+### If the upload to Google Drive times out
+
+Two different causes have been seen, both showing up as `context deadline exceeded` or very slow runs:
+
+- **DNS inside the containers.** Docker's resolver forwards to the host's, which is Tailscale's here, and lookups failed for minutes (`lookup oauth2.googleapis.com on 127.0.0.11:53: server misbehaving`; rclone reads that as "rate limited" and retries). The `dns:` entry of the `x-hardened` block in `docker-compose.yml` (1.1.1.1 and 9.9.9.9) fixes it for every service. Test: `docker exec firefly_iii_cron getent hosts oauth2.googleapis.com`.
+- **Google's own quota.** rclone uses a Google API project shared by all its users unless you give it your own, and Google then answers `RATE_LIMIT_EXCEEDED`. The Nextcloud backup hit it once. The lasting fix is to create your own OAuth client in the Google Cloud console and set `client_id` and `client_secret` in the `gdrive` remote (see rclone's "Making your own client_id" documentation); until then, restic's local cache (`RESTIC_CACHE_DIR`) keeps the number of requests down.
+
 ### Nextcloud backup
 
 Nextcloud (`../nextcloud`, outside this repository) is backed up by the root systemd timer `nextcloud-backup.timer` (every night around 03:30), which runs `/usr/local/sbin/nextcloud-backup.sh`: Nextcloud in maintenance mode, a dump of its database, then [restic](https://restic.net/) to `gdrive:nextcloud-backup` (its own repository and password, in `/etc/nextcloud-backup.env`) for the dump, `/srv/nextcloud-data` and the `config` directory, keeping 7 daily, 4 weekly and 12 monthly snapshots. On success it touches `/var/backups/nextcloud/.last-success`, which the [monitoring](#monitoring) reads. The script is root-only and not versioned here, so keep a copy of `/etc/nextcloud-backup.env`'s password elsewhere. After a crash that interrupted a run, `restic unlock` (as root, with that environment) removes the stale lock that would otherwise block the next one. A full run can take several minutes, or more when Google Drive throttles the requests.

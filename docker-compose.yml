@@ -1,10 +1,18 @@
-# Every container drops all Linux capabilities and cannot gain new ones; each service adds back
-# only what its entrypoint needs (chown the volumes, switch to its unprivileged user).
+# Settings shared by every service.
+# - Every container drops all Linux capabilities and cannot gain new ones; each service adds back
+#   only what its entrypoint needs (chown the volumes, switch to its unprivileged user).
+# - Public DNS servers: Docker's own resolver forwards to the host's, which here is Tailscale's
+#   (100.100.100.100 and an IPv6 address containers cannot reach), and its lookups failed or hung
+#   for minutes, which broke the Google Drive backups, the bank import and the mail. Container
+#   names (app, db...) are still resolved by Docker.
 x-hardened: &hardened
   security_opt:
     - no-new-privileges:true
   cap_drop:
     - ALL
+  dns:
+    - 1.1.1.1
+    - 9.9.9.9
 
 services:
   # Ports are bound to localhost only; `tailscale serve` publishes them over HTTPS on the tailnet:
