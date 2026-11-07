@@ -446,7 +446,11 @@ def yahoo_price(symbol: str) -> float:
 def pea_positions() -> dict:
     """Holdings of the PEA at today's prices (from patrimoine/pea.txt), with each line's weight."""
     lines = []
-    with open(PEA_POSITIONS, encoding="utf-8") as f:
+    try:
+        f = open(PEA_POSITIONS, encoding="utf-8")
+    except FileNotFoundError as error:
+        raise ToolError("No PEA positions file (patrimoine/pea.txt): there is no PEA to value") from error
+    with f:
         for raw in f:
             parts = raw.split(None, 2)
             if not parts or parts[0].startswith("#"):
@@ -481,8 +485,11 @@ def set_pea_position(symbol: str, quantity: float, label: str | None = None) -> 
             yahoo_price(symbol)
         except (urllib.error.URLError, KeyError, TypeError, IndexError) as error:
             raise ToolError(f"No euro price for {symbol} on Yahoo Finance ({error})") from error
-    with open(PEA_POSITIONS, encoding="utf-8") as f:
-        lines = f.read().splitlines()
+    try:
+        with open(PEA_POSITIONS, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError as error:
+        raise ToolError("No PEA positions file (patrimoine/pea.txt): create it from pea.example.txt first") from error
     index = next((i for i, raw in enumerate(lines)
                   if raw.split(None, 1) and raw.split(None, 1)[0] == symbol), None)
     before = None
