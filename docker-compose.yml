@@ -147,19 +147,14 @@ services:
       - MYSQL_USER=${DB_USERNAME}
       - MYSQL_PASSWORD=${DB_PASSWORD}
       - MYSQL_DATABASE=${DB_DATABASE}
-      # Off-site backup (restic); optional healthchecks.io pings and local retention in days.
-      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY:-}
-      - RESTIC_PASSWORD=${RESTIC_PASSWORD:-}
+      # Optional healthchecks.io pings and local backup retention in days.
       - HEALTHCHECK_URL=${HEALTHCHECK_URL:-}
       - IMPORT_HEALTHCHECK_URL=${IMPORT_HEALTHCHECK_URL:-}
       - KEEP_DAYS=${KEEP_DAYS:-14}
       - AUTO_IMPORT_SECRET=${AUTO_IMPORT_SECRET}
-      - RCLONE_CONFIG=/config/rclone/rclone.conf
-      - RESTIC_CACHE_DIR=/tmp/restic-cache
       - BACKUP_OWNER=1000:1000
     volumes:
       - ./backups:/backups
-      - ./.rclone:/config/rclone
       - firefly_upload:/uploads:ro
       - importer_logs:/importer-logs:ro
       - ./patrimoine:/patrimoine:ro

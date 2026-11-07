@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Monthly proof that the off-site backup can be restored (see the README, "Monitoring").
+"""Monthly proof that the backup can be restored (see the README, "Monitoring").
 
-Takes the latest Firefly III dump from the restic repository on Google Drive, loads it into a
+Takes the latest Firefly III dump from backups/, loads it into a
 throwaway MariaDB container (same image as production, removed afterwards) and checks that the
 data is there and close to the live database. Mails the result either way. Production is only
 read. Standard library only; runs on the host.
@@ -11,14 +11,13 @@ read. Standard library only; runs on the host.
 """
 
 import gzip
-import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "update"))
-from update import images, send_text  # noqa: E402
+from update import ROOT, images, send_text  # noqa: E402
 
 NAME = "firefly-restore-test"
 COUNT = ("select count(*) from transaction_journals where deleted_at is null",
@@ -40,15 +39,11 @@ def counts(container: str, user: str, password: str, database: str) -> list[int]
 
 def run_test() -> str:
     """Returns a one-line summary; raises on any failure."""
-    listing = sh("docker", "exec", "firefly_iii_cron", "restic", "ls", "latest", "--host", "firefly", text=True, timeout=900)
-    dumps = re.findall(r"(/\S*firefly_[\d-]+\.sql\.gz)", listing.stdout)
+    dumps = sorted((ROOT / "backups").glob("firefly_*.sql.gz"))
     if not dumps:
-        raise RuntimeError(f"Aucun dump trouvé dans la dernière sauvegarde restic : {listing.stderr[-200:]}")
-    path = sorted(dumps)[-1]
-    dump = sh("docker", "exec", "firefly_iii_cron", "restic", "dump", "latest", path, "--host", "firefly", timeout=1800)
-    if dump.returncode or not dump.stdout:
-        raise RuntimeError(f"Restauration de {path} impossible : {dump.stderr[-200:].decode(errors='replace')}")
-    sql = gzip.decompress(dump.stdout)
+        raise RuntimeError("Aucun dump trouvé dans backups/")
+    path = str(dumps[-1])
+    sql = gzip.decompress(dumps[-1].read_bytes())
 
     image = next(i for stack, i in images() if stack == "firefly" and i.startswith("mariadb"))
     sh("docker", "rm", "-f", NAME)
@@ -81,9 +76,9 @@ def run_test() -> str:
 def main() -> None:
     try:
         summary = run_test()
-        subject, body = "Serveur : test de restauration réussi", "La sauvegarde hors site se restaure correctement.\n\n" + summary
+        subject, body = "Serveur : test de restauration réussi", "La dernière sauvegarde se restaure correctement.\n\n" + summary
     except Exception as error:
-        subject, body = "Serveur : ÉCHEC du test de restauration", f"La sauvegarde hors site n'a pas pu être restaurée.\n\n{error}"
+        subject, body = "Serveur : ÉCHEC du test de restauration", f"La dernière sauvegarde n'a pas pu être restaurée.\n\n{error}"
     print(body)
     if "--print" not in sys.argv:
         send_text(subject, body)

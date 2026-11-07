@@ -1,6 +1,6 @@
 FROM alpine:3.22
 
-RUN apk add --no-cache supercronic tzdata mariadb-client restic rclone jq
+RUN apk add --no-cache supercronic tzdata mariadb-client jq
 
 COPY crontab /etc/crontab
 COPY daily.sh import.sh valuation.sh backup.sh /usr/local/bin/

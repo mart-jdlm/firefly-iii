@@ -35,8 +35,7 @@ Persistent data lives in named Docker volumes:
 
 - `docker-compose.yml` — service definitions.
 - `.env` — Firefly III core configuration (app key, DB connection, timezone, mail, etc.). **Not committed**; see [First-time setup](#first-time-setup).
-  It also holds what Compose passes to the other services: `TS_HOST` (the machine's Tailscale name), `FIREFLY_III_ACCESS_TOKEN` and `ENABLE_BANKING_APP_ID` (Data Importer), `RESTIC_REPOSITORY` / `RESTIC_PASSWORD` and the optional `HEALTHCHECK_URL`, `IMPORT_HEALTHCHECK_URL`, `KEEP_DAYS` (backups). The MariaDB container reuses `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD`.
-- `.rclone/` — Google Drive access for the off-site backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
+  It also holds what Compose passes to the other services: `TS_HOST` (the machine's Tailscale name), `FIREFLY_III_ACCESS_TOKEN` and `ENABLE_BANKING_APP_ID` (Data Importer) and the optional `HEALTHCHECK_URL`, `IMPORT_HEALTHCHECK_URL`, `KEEP_DAYS` (backups). The MariaDB container reuses `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD`.
 - `.enablebanking.pem` — Enable Banking private key for bank sync. **Not committed.**
 - `import/` — data importer configs used by the daily bank import. **Not committed.**
 - `.api.env` — `FIREFLY_TOKEN`, a personal access token used by the `assistant` and the PEA valuation. **Not committed.**
@@ -96,7 +95,7 @@ MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its
 Two scripts in [watchdog/](watchdog/) (standard library only, run on the host by systemd user timers) tell you when something silently stops working. They mail through the `MAIL_*` settings of `.env`. Enable both with `bash watchdog/install-timers.sh`.
 
 - [watchdog.py](watchdog/watchdog.py), every hour: every container up and healthy, the web pages (Firefly III, importer, Pico, Nextcloud) answering, the Firefly III backup less than 30 hours old, the last nightly Nextcloud backup recent (it reads the marker `/var/backups/nextcloud/.last-success`, see [Nextcloud](#nextcloud-backup)), no cron job failing for more than 6 hours (`daily.sh` leaves a `backups/.state/<job>.failed` marker), disk under 85 %. It mails once per set of problems, and once more when they are gone. `python3 watchdog/watchdog.py --print` only prints.
-- [restore_test.py](watchdog/restore_test.py), on the 1st of each month: restores the latest dump from the restic repository on Google Drive into a throwaway MariaDB container, checks that the transactions and accounts are there and close to the live database, and mails the result either way. `python3 watchdog/restore_test.py --print` runs it now (about 5 minutes).
+- [restore_test.py](watchdog/restore_test.py), on the 1st of each month: loads the latest dump of `backups/` into a throwaway MariaDB and compares it with the live database; mails the result.
 
 It cannot warn you when the machine itself is off or offline: nothing runs then. Add an external ping (for example healthchecks.io, through `HEALTHCHECK_URL` and `IMPORT_HEALTHCHECK_URL` in `.env`) if you want that.
 
@@ -225,26 +224,10 @@ By hand: `bilan/bilan.sh` (last month), `bilan/bilan.sh 2026-09` (another month)
 
 Each day (see [Scheduled jobs](#scheduled-jobs)) `backup.sh`:
 
-1. dumps the database to `backups/firefly_YYYY-MM-DD.sql.gz` and archives the `firefly_upload` volume to `backups/uploads_YYYY-MM-DD.tar.gz`, keeping 14 days locally;
-2. if `.env` sets `RESTIC_REPOSITORY`, sends both files to an encrypted [restic](https://restic.net/) repository on Google Drive (through rclone), keeping 7 daily, 4 weekly and 12 monthly snapshots.
+1. dumps the database to `backups/firefly_YYYY-MM-DD.sql.gz` and archives the `firefly_upload` volume to `backups/uploads_YYYY-MM-DD.tar.gz`;
+2. checks that both files can be read back (`gzip -t`, `tar t`), and keeps 14 days (`KEEP_DAYS` in `.env`).
 
-`backups/`, `*.sql`, `*.sql.gz` and `.rclone/` are git-ignored.
-
-### Off-site setup (once)
-
-1. Authorize Google Drive (opens a link to visit in a browser on this machine; rclone only sees the files it creates):
-   ```bash
-   mkdir -p .rclone
-   docker run --rm -it --user $(id -u):$(id -g) --network host -v "$PWD/.rclone":/config/rclone \
-     rclone/rclone:1.71.2 config create gdrive drive scope=drive.file
-   ```
-2. Add to `.env`:
-   ```
-   RESTIC_REPOSITORY=rclone:gdrive:firefly-backup
-   RESTIC_PASSWORD=<long random password>
-   ```
-   **Keep `RESTIC_PASSWORD` somewhere other than this machine (e.g. a password manager). Without it, the Drive copy cannot be decrypted.**
-3. Create the repository and restart: `docker compose run --rm cron restic init && docker compose up -d cron`.
+`backups/`, `*.sql` and `*.sql.gz` are git-ignored. The backups are local, on the same disk as the data: they protect against a mistake or a bad update, not against the loss of the machine. Copy `backups/` somewhere else now and then (USB drive, another computer).
 
 ### Failure alerts (optional)
 
@@ -256,20 +239,13 @@ HEALTHCHECK_URL=https://hc-ping.com/<uuid>
 
 `backup.sh` reports its exit code to it after every run. Backups run whenever the machine is on (see [Scheduled jobs](#scheduled-jobs)), not at a fixed time, so on healthchecks.io use a **simple** schedule: period 1 day, grace time 2 days. You get an e-mail when a run fails, or when no backup has happened for 3 days. Apply with `docker compose up -d cron`.
 
-### If the upload to Google Drive times out
-
-Two different causes have been seen, both showing up as `context deadline exceeded` or very slow runs:
-
-- **DNS inside the containers.** Docker's resolver forwards to the host's, which is Tailscale's here, and lookups failed for minutes (`lookup oauth2.googleapis.com on 127.0.0.11:53: server misbehaving`; rclone reads that as "rate limited" and retries). The `dns:` entry of the `x-hardened` block in `docker-compose.yml` (1.1.1.1 and 9.9.9.9) fixes it for every service. Test: `docker exec firefly_iii_cron getent hosts oauth2.googleapis.com`.
-- **Google's own quota.** rclone uses a Google API project shared by all its users unless you give it your own, and Google then answers `RATE_LIMIT_EXCEEDED`. The Nextcloud backup hit it once. The lasting fix is to create your own OAuth client in the Google Cloud console and set `client_id` and `client_secret` in the `gdrive` remote (see rclone's "Making your own client_id" documentation); until then, restic's local cache (`RESTIC_CACHE_DIR`) keeps the number of requests down.
-
 ### Nextcloud backup
 
-Nextcloud (`../nextcloud`, outside this repository) is backed up by the root systemd timer `nextcloud-backup.timer` (every night around 03:30), which runs `/usr/local/sbin/nextcloud-backup.sh`: Nextcloud in maintenance mode, a dump of its database, then [restic](https://restic.net/) to `gdrive:nextcloud-backup` (its own repository and password, in `/etc/nextcloud-backup.env`) for the dump, `/srv/nextcloud-data` and the `config` directory, keeping 7 daily, 4 weekly and 12 monthly snapshots. On success it touches `/var/backups/nextcloud/.last-success`, which the [monitoring](#monitoring) reads. The script is root-only and not versioned here, so keep a copy of `/etc/nextcloud-backup.env`'s password elsewhere. After a crash that interrupted a run, `restic unlock` (as root, with that environment) removes the stale lock that would otherwise block the next one. A full run can take several minutes, or more when Google Drive throttles the requests.
+Nextcloud (`../nextcloud`, outside this repository) is backed up by the root systemd timer `nextcloud-backup.timer` (every night around 03:30), which runs `/usr/local/sbin/nextcloud-backup.sh`: Nextcloud in maintenance mode for about a minute, a dump of its database, then a copy of `/srv/nextcloud-data` and of the `config` directory into `/var/backups/nextcloud/YYYY-MM-DD/` (`nextcloud.sql.gz`, `data/`, `config/`). Files that did not change are hard-linked from the previous day (`rsync --link-dest`), so 7 days cost little more than one. On success it touches `/var/backups/nextcloud/.last-success`, which the [monitoring](#monitoring) reads (the folder is mode 711: the marker is readable, the backups are root-only). The script is root-only and not versioned here. Like the Firefly III backups, this is on the same disk: copy `/var/backups/nextcloud` (as root) to a USB drive or another computer now and then.
 
 ### Restore
 
-Nextcloud (not tested end to end): as root with the environment of `/etc/nextcloud-backup.env`, `restic restore latest --tag nextcloud --target /restore` brings back `/srv/nextcloud-data`, the database dump and the `config` directory, each under its full original path inside `/restore`; put the data back in `/srv/nextcloud-data`, load the dump with `gunzip -c nextcloud_YYYY-MM-DD.sql.gz | docker compose exec -T db sh -c 'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" nextcloud'` (in `../nextcloud`), restore `config/config.php`, then `docker compose exec -u www-data app php occ maintenance:data-fingerprint`.
+Nextcloud (not tested end to end), as root: stop writes (`docker compose exec -u www-data app php occ maintenance:mode --on` in `../nextcloud`), copy `/var/backups/nextcloud/YYYY-MM-DD/data/` back to `/srv/nextcloud-data/` (`rsync -a --delete`), load the database with `gunzip -c .../nextcloud.sql.gz | docker compose exec -T db sh -c 'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" nextcloud'`, put `.../config/` back into the `nextcloud_nextcloud_html` volume's `config` directory, then `occ maintenance:data-fingerprint` and `maintenance:mode --off`.
 
 Firefly III, database, from a local dump:
 
@@ -278,13 +254,7 @@ gunzip -c backups/firefly_YYYY-MM-DD.sql.gz \
   | docker exec -i firefly_iii_db sh -c 'mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
 ```
 
-Firefly III, from Google Drive (needs `.rclone/` and the `RESTIC_*` lines of `.env`; `python3 watchdog/restore_test.py --print` does a dry run of this every month):
-
-```bash
-docker compose run --rm cron restic snapshots
-docker compose run --rm cron restic restore latest --target /backups/restore
-# files land in backups/restore/backups/
-```
+`python3 watchdog/restore_test.py --print` does a dry run of this every month (latest dump loaded into a throwaway database).
 
 Attachments:
 
@@ -297,10 +267,10 @@ docker run --rm -v firefly-iii_firefly_upload:/data -v "$PWD/backups":/backup al
 
 ## Security notes
 
-- Secrets live only in the git-ignored `.env` and `.rclone/`. Never put them back in `docker-compose.yml`.
+- Secrets live only in the git-ignored `.env`. Never put them back in `docker-compose.yml`.
 - Ports 8080, 8181 and 8282 are bound to `127.0.0.1`: they are not reachable from the LAN, only through `tailscale serve`. Keep it that way.
 - Every container drops all Linux capabilities and cannot gain new ones (`cap_drop: ALL` and `no-new-privileges` through the `x-hardened` block of `docker-compose.yml`); each service adds back only what its entrypoint needs (`cap_add`). If a new image refuses to start after an update, a missing capability is the first thing to check in `docker logs`.
-- The repository is public: it must never contain a secret. `.env`, `.api.env`, `.rclone/`, `*.pem`, `import/`, `patrimoine/` and `backups/` are git-ignored; check `git status` before each push. The Tailscale host name appears in older commits, which is harmless: the services only answer on the tailnet.
+- The repository is public: it must never contain a secret. `.env`, `.api.env`, `*.pem`, `import/`, `patrimoine/` and `backups/` are git-ignored; check `git status` before each push. The Tailscale host name appears in older commits, which is harmless: the services only answer on the tailnet.
 - The host: SSH accepts keys only (`PasswordAuthentication no`, no root login, in `/etc/ssh/sshd_config.d/10-cle-seule.conf`) and `ufw` allows only Tailscale and the local network. Keep a working key before changing that file, or the machine can only be reached with a keyboard.
-- `.enablebanking.pem` is mode 644 because the importer runs as `www-data` inside its container, and `.env` also reaches the Firefly III container (restic password, importer token). Both are accepted trade-offs of a single-user machine.
+- `.enablebanking.pem` is mode 644 because the importer runs as `www-data` inside its container, and `.env` also reaches the Firefly III container (importer token). Both are accepted trade-offs of a single-user machine.
 - Personal access tokens (`.api.env`, and `FIREFLY_III_ACCESS_TOKEN` in `.env`) can be revoked in Firefly III (Options > Profile > OAuth). Revoking one breaks what uses it: the importer, the assistant and the PEA valuation. The nightly import then fails and shows up in `docker logs firefly_iii_cron` and in the monitoring mail.

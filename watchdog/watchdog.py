@@ -64,7 +64,7 @@ def problems() -> list[str]:
             found.append(f"La tâche « {marker.stem} » échoue depuis {hours_since(marker.stat().st_mtime):.0f} h "
                          "(voir : docker logs firefly_iii_cron)")
 
-    # The root script /usr/local/sbin/nextcloud-backup.sh touches this file once the restic upload is done.
+    # The root script /usr/local/sbin/nextcloud-backup.sh touches this file once the local copy is done.
     # (systemd's own "Result" is reset by a reboot and says nothing about a run cut short by a crash.)
     marker = Path("/var/backups/nextcloud/.last-success")
     if not marker.exists():

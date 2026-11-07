@@ -2,7 +2,7 @@
 *.sql
 *.sql.gz
 backups/
-.rclone/
+.rclone*/
 .vscode/
 *.pem
 import/
