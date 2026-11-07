@@ -29,6 +29,7 @@ Persistent data lives in named Docker volumes:
 - `firefly_iii_db` — MariaDB data
 - `firefly_upload` — attachments uploaded to Firefly III
 - `pico_data` — Firefly Pico's local database
+- `importer_logs` — the Data Importer's log, also mounted read-only in `cron` so that `import.sh` can tell whether an import worked
 
 ## Files
 
@@ -38,11 +39,13 @@ Persistent data lives in named Docker volumes:
 - `.rclone/` — Google Drive access for the off-site backups. **Not committed**; see [Off-site setup](#off-site-setup-once).
 - `.enablebanking.pem` — Enable Banking private key for bank sync. **Not committed.**
 - `import/` — data importer configs used by the daily bank import. **Not committed.**
-- `.api.env` — `FIREFLY_TOKEN`, a personal access token for the PEA valuation. **Not committed.**
+- `.api.env` — `FIREFLY_TOKEN`, a personal access token used by the `assistant` and the PEA valuation. **Not committed.**
 - `patrimoine/objectifs.json` — savings goals, written by the assistant (`set_goal`). **Not committed**.
-- `patrimoine/pea.txt` — PEA positions (see [PEA valuation](#pea-valuation)). **Not committed**; `patrimoine/pea.example.txt` shows the format.
+- `patrimoine/pea.txt` — PEA positions (see [PEA valuation](#pea-valuation)); optional, the valuation is skipped without it. **Not committed**; `patrimoine/pea.example.txt` shows the format.
 - `cron/` — image, schedule, import and backup scripts for the `cron` service.
 - `assistant/`, `.mcp.json` — MCP server that lets Claude Code read Firefly III (see [Assistant](#assistant)).
+- `update/` — new image versions: weekly e-mail and one-command update (see [Updates](#updates)).
+- `watchdog/` — hourly health check and monthly restore test, both by e-mail (see [Monitoring](#monitoring)).
 - `bilan/` — monthly HTML review, commented by Claude Code and e-mailed (see [Monthly review](#monthly-review)); reviews are kept in `bilans/`, **not committed**.
 
 ## First-time setup
@@ -60,7 +63,7 @@ Persistent data lives in named Docker volumes:
    docker compose up -d
    ```
 4. Open Firefly III and register the first user (it becomes the admin).
-5. For the Data Importer: in Firefly III go to **Options → Profile → OAuth → Personal Access Tokens**, create a token, and put it in `.env` as `FIREFLY_III_ACCESS_TOKEN=<token>`. Then `docker compose up -d importer`.
+5. For the Data Importer: in Firefly III go to **Options → Profile → OAuth → Personal Access Tokens**, create a token, and put it in `.env` as `FIREFLY_III_ACCESS_TOKEN=<token>`. Then `docker compose up -d importer`. Give each use its own token name (`Importer`, `Assistant`, `Pico`) and never revoke or replace one that is in use: whatever uses it then fails with a 401 (see [Security notes](#security-notes)).
 6. For Firefly Pico: open it on port 8282 and log in with a personal access token as well.
 
 ## Day-to-day
@@ -127,26 +130,26 @@ Firefly III sends bill reminders through the `MAIL_*` settings in `.env` (Gmail 
 
 The Data Importer pulls transactions from the bank through [Enable Banking](https://enablebanking.com/) (free for your own accounts: a production application activated by linking your accounts, in "restricted mode"). Access is read-only.
 
-Once a day (see [Scheduled jobs](#scheduled-jobs)) `import.sh` POSTs to the importer's `/autoimport`, which runs each config in `import/` (last 5 days; transactions already in Firefly III are recognised by the bank's ID and skipped). Rules are applied on import. The importer e-mails a report only when it has something to say: new transactions, or errors such as an expired consent.
+Once a day (see [Scheduled jobs](#scheduled-jobs)) `import.sh` POSTs to the importer's `/autoimport`, which runs each config in `import/` (last 5 days; transactions already in Firefly III are recognised by the bank's ID and skipped). Rules are applied on import. The importer's own e-mail report is off (`ENABLE_MAIL_REPORT=false`): an import that fails, such as an expired bank consent, is caught by `import.sh` (below) and by the [monitoring](#monitoring).
 
 The importer answers "Seems to have worked" even when an import fails, so `import.sh` reads the importer's own log (the `importer_logs` volume, mounted read-only in `cron`) and treats any `ERROR` line written during the run as a failure, except the "Zero transactions" messages an empty period produces. A failed import is retried about 2 hours later and shows in `docker logs firefly_iii_cron`. Duplicates are avoided with `duplicate_detection_method: "cell"` in the import configs: the bank's transaction ID is looked up in Firefly III before anything is added.
 
 Setup:
 
 1. On the Enable Banking control panel, register a **production** application with redirect URL `https://<host>:8181/eb-callback`, keep the downloaded private key as `.enablebanking.pem` (mode 644: the importer runs as `www-data`), then *Activate by linking accounts*.
-2. In `.env`: `ENABLE_BANKING_APP_ID` and `AUTO_IMPORT_SECRET` (32 random characters). The importer's `CAN_POST_AUTOIMPORT`, `IMPORT_DIR_ALLOWLIST` and `ENABLE_MAIL_REPORT` are set in `docker-compose.yml`; for e-mailed import reports, set `ENABLE_MAIL_REPORT=true` there and add the `MAIL_*` settings (same Gmail account as Firefly III, plus `MAIL_DESTINATION` and `MAIL_FROM_ADDRESS`).
+2. In `.env`: `ENABLE_BANKING_APP_ID` and `AUTO_IMPORT_SECRET` (32 random characters). The importer's `CAN_POST_AUTOIMPORT`, `IMPORT_DIR_ALLOWLIST` and `ENABLE_MAIL_REPORT` are set in `docker-compose.yml`; to have the importer e-mail its own report as well, set `ENABLE_MAIL_REPORT=true` there and add the importer's mail variables (`MAIL_MAILER`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION`, `MAIL_DESTINATION`, `MAIL_FROM_ADDRESS`) to the importer's `environment:` block: it no longer reads `.env` as a whole.
 3. Run one import by hand in the importer UI and download its configuration into `import/<name>.json`. Set its `date_range` to `partial` and `date_range_number` to `5`, otherwise it keeps asking for the fixed dates it was downloaded with (the bank then refuses it with a misleading "more than 90 days" error).
 4. Optional: `IMPORT_HEALTHCHECK_URL` in `.env` for an alert when the daily import itself fails.
 
-**Bank consent expires** (90 days for Crédit Agricole de Paris). To renew: run an import in the importer UI again, download the new configuration and replace the file in `import/`.
+**Bank consent expires** (90 days for Crédit Agricole de Paris; each bank has its own config in `import/`). The failing import shows in the monitoring mail. To renew: run an import in the importer UI again, download the new configuration and replace the file in `import/`.
 
 ## PEA valuation
 
-The bank only reports the PEA's cash movements, not what its holdings are worth. Each day `valuation.sh` reads the positions in `patrimoine/pea.txt` (Yahoo Finance symbol and quantity per line, plus `especes` for cash), prices them, and books the gap between that market value and the balance of the `PEA - Boursobank` account: a deposit from *Plus-values latentes* or a withdrawal to *Moins-values latentes*, category *Valorisation*, tag `valorisation`. The account balance therefore always equals the PEA's value. Contributions are still entered as usual (as transfers from the current account).
+Optional: skipped ("No /patrimoine/pea.txt, skipping") when `patrimoine/pea.txt` does not exist, which is the right setting without a PEA. The bank only reports the PEA's cash movements, not what its holdings are worth. Each day `valuation.sh` reads the positions in `patrimoine/pea.txt` (Yahoo Finance symbol and quantity per line, plus `especes` for cash), prices them, and books the gap between that market value and the balance of the `PEA - Boursobank` account: a deposit from *Plus-values latentes* or a withdrawal to *Moins-values latentes*, category *Valorisation*, tag `valorisation`. The account balance therefore always equals the PEA's value. Contributions are still entered as usual (as transfers from the current account).
 
 Setup:
 
-1. In Firefly III, create a personal access token (**Options → Profile → OAuth**) and put it in `.api.env` (`chmod 600`) as `FIREFLY_TOKEN=<token>`.
+1. In Firefly III, create an asset account named `PEA - Boursobank` (or set `PEA_ACCOUNT`), and a personal access token (**Options → Profile → OAuth**, name it `Assistant`) that you put in `.api.env` (`chmod 600`) as `FIREFLY_TOKEN=<token>`. Run `docker compose up -d cron` afterwards: the container reads `.api.env` only when it is created.
 2. Copy `patrimoine/pea.example.txt` to `patrimoine/pea.txt` and enter the positions. Find each symbol by searching the ISIN on [Yahoo Finance](https://finance.yahoo.com) (Paris listings end in `.PA`); only prices in euros are accepted.
 3. **Before the first run**, make sure the account's balance equals the total contributed so far, so that only real gains are booked as *Plus-values latentes*.
 4. `docker compose up -d --build cron`, then `docker exec firefly_iii_cron valuation.sh`.
@@ -214,6 +217,7 @@ Setup (once):
    systemctl --user link ~/server/firefly-iii/bilan/firefly-bilan.service
    systemctl --user enable --now ~/server/firefly-iii/bilan/firefly-bilan.timer
    ```
+3. Once, for this and the other user timers ([update](#updates), [watchdog](#monitoring)) to run without a login session: `sudo loginctl enable-linger $USER`. Their e-mails need the `MAIL_*` settings of `.env`.
 
 By hand: `bilan/bilan.sh` (last month), `bilan/bilan.sh 2026-09` (another month), `FORCE=1 bilan/bilan.sh` (rebuild an existing review), `NO_MAIL=1 bilan/bilan.sh` (no e-mail). Logs: `journalctl --user -u firefly-bilan`.
 
@@ -258,14 +262,16 @@ Nextcloud (`../nextcloud`, outside this repository) is backed up by the root sys
 
 ### Restore
 
-Database, from a local dump:
+Nextcloud (not tested end to end): as root with the environment of `/etc/nextcloud-backup.env`, `restic restore latest --tag nextcloud --target /restore` brings back `/srv/nextcloud-data`, the database dump and the `config` directory, each under its full original path inside `/restore`; put the data back in `/srv/nextcloud-data`, load the dump with `gunzip -c nextcloud_YYYY-MM-DD.sql.gz | docker compose exec -T db sh -c 'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" nextcloud'` (in `../nextcloud`), restore `config/config.php`, then `docker compose exec -u www-data app php occ maintenance:data-fingerprint`.
+
+Firefly III, database, from a local dump:
 
 ```bash
 gunzip -c backups/firefly_YYYY-MM-DD.sql.gz \
   | docker exec -i firefly_iii_db sh -c 'mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
 ```
 
-From Google Drive (needs `.rclone/` and the `RESTIC_*` lines of `.env`):
+Firefly III, from Google Drive (needs `.rclone/` and the `RESTIC_*` lines of `.env`; `python3 watchdog/restore_test.py --print` does a dry run of this every month):
 
 ```bash
 docker compose run --rm cron restic snapshots
