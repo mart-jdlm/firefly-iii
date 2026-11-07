@@ -92,7 +92,7 @@ MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its
 
 Two scripts in [watchdog/](watchdog/) (standard library only, run on the host by systemd user timers) tell you when something silently stops working. They mail through the `MAIL_*` settings of `.env`. Enable both with `bash watchdog/install-timers.sh`.
 
-- [watchdog.py](watchdog/watchdog.py), every hour: every container up and healthy, the web pages (Firefly III, importer, Pico, Nextcloud) answering, the Firefly III backup less than 30 hours old, the last nightly Nextcloud backup (`nextcloud-backup.service`) successful and recent, no cron job failing for more than 6 hours (`daily.sh` leaves a `backups/.state/<job>.failed` marker), disk under 85 %. It mails once per set of problems, and once more when they are gone. `python3 watchdog/watchdog.py --print` only prints.
+- [watchdog.py](watchdog/watchdog.py), every hour: every container up and healthy, the web pages (Firefly III, importer, Pico, Nextcloud) answering, the Firefly III backup less than 30 hours old, the last nightly Nextcloud backup recent (it reads the marker `/var/backups/nextcloud/.last-success`, see [Nextcloud](#nextcloud-backup)), no cron job failing for more than 6 hours (`daily.sh` leaves a `backups/.state/<job>.failed` marker), disk under 85 %. It mails once per set of problems, and once more when they are gone. `python3 watchdog/watchdog.py --print` only prints.
 - [restore_test.py](watchdog/restore_test.py), on the 1st of each month: restores the latest dump from the restic repository on Google Drive into a throwaway MariaDB container, checks that the transactions and accounts are there and close to the live database, and mails the result either way. `python3 watchdog/restore_test.py --print` runs it now (about 5 minutes).
 
 It cannot warn you when the machine itself is off or offline: nothing runs then. Add an external ping (for example healthchecks.io, through `HEALTHCHECK_URL` and `IMPORT_HEALTHCHECK_URL` in `.env`) if you want that.
@@ -252,6 +252,10 @@ HEALTHCHECK_URL=https://hc-ping.com/<uuid>
 
 `backup.sh` reports its exit code to it after every run. Backups run whenever the machine is on (see [Scheduled jobs](#scheduled-jobs)), not at a fixed time, so on healthchecks.io use a **simple** schedule: period 1 day, grace time 2 days. You get an e-mail when a run fails, or when no backup has happened for 3 days. Apply with `docker compose up -d cron`.
 
+### Nextcloud backup
+
+Nextcloud (`../nextcloud`, outside this repository) is backed up by the root systemd timer `nextcloud-backup.timer` (every night around 03:30), which runs `/usr/local/sbin/nextcloud-backup.sh`: Nextcloud in maintenance mode, a dump of its database, then [restic](https://restic.net/) to `gdrive:nextcloud-backup` (its own repository and password, in `/etc/nextcloud-backup.env`) for the dump, `/srv/nextcloud-data` and the `config` directory, keeping 7 daily, 4 weekly and 12 monthly snapshots. On success it touches `/var/backups/nextcloud/.last-success`, which the [monitoring](#monitoring) reads. The script is root-only and not versioned here, so keep a copy of `/etc/nextcloud-backup.env`'s password elsewhere. After a crash that interrupted a run, `restic unlock` (as root, with that environment) removes the stale lock that would otherwise block the next one. A full run can take several minutes, or more when Google Drive throttles the requests.
+
 ### Restore
 
 Database, from a local dump:
@@ -282,3 +286,8 @@ docker run --rm -v firefly-iii_firefly_upload:/data -v "$PWD/backups":/backup al
 
 - Secrets live only in the git-ignored `.env` and `.rclone/`. Never put them back in `docker-compose.yml`.
 - Ports 8080, 8181 and 8282 are bound to `127.0.0.1`: they are not reachable from the LAN, only through `tailscale serve`. Keep it that way.
+- Every container drops all Linux capabilities and cannot gain new ones (`cap_drop: ALL` and `no-new-privileges` through the `x-hardened` block of `docker-compose.yml`); each service adds back only what its entrypoint needs (`cap_add`). If a new image refuses to start after an update, a missing capability is the first thing to check in `docker logs`.
+- The repository is public: it must never contain a secret. `.env`, `.api.env`, `.rclone/`, `*.pem`, `import/`, `patrimoine/` and `backups/` are git-ignored; check `git status` before each push. The Tailscale host name appears in older commits, which is harmless: the services only answer on the tailnet.
+- The host: SSH accepts keys only (`PasswordAuthentication no`, no root login, in `/etc/ssh/sshd_config.d/10-cle-seule.conf`) and `ufw` allows only Tailscale and the local network. Keep a working key before changing that file, or the machine can only be reached with a keyboard.
+- `.enablebanking.pem` is mode 644 because the importer runs as `www-data` inside its container, and `.env` also reaches the Firefly III container (restic password, importer token). Both are accepted trade-offs of a single-user machine.
+- Personal access tokens (`.api.env`, and `FIREFLY_III_ACCESS_TOKEN` in `.env`) can be revoked in Firefly III (Options > Profile > OAuth). Revoking one breaks what uses it: the importer, the assistant and the PEA valuation. The nightly import then fails and shows up in `docker logs firefly_iii_cron` and in the monitoring mail.
