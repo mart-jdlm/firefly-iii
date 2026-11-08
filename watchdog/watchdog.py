@@ -24,7 +24,7 @@ from update import ROOT, read_env, send_text  # noqa: E402
 
 STATE = ROOT / "backups" / ".state"
 CONTAINERS = ["firefly_iii_core", "firefly_iii_db", "firefly_iii_importer", "firefly_iii_pico",
-              "firefly_iii_cron", "nextcloud_app", "nextcloud_db", "nextcloud_cron", "nextcloud_redis"]
+              "firefly_iii_cron", "nextcloud_app", "nextcloud_db", "nextcloud_cron", "nextcloud_redis", "obsidian_couchdb"]
 PAGES = {"Firefly III": "http://127.0.0.1:8080/login", "Importer": "http://127.0.0.1:8181/",
          "Pico": "http://127.0.0.1:8282/", "Nextcloud": "http://127.0.0.1:8484/status.php"}
 BACKUP_MAX_HOURS = 30   # the nightly jobs run every ~24 h; a missed day shows after 30 h
@@ -71,6 +71,10 @@ def problems() -> list[str]:
         found.append("Aucune sauvegarde Nextcloud réussie enregistrée (fichier-témoin absent)")
     elif hours_since(marker.stat().st_mtime) > BACKUP_MAX_HOURS:
         found.append(f"La dernière sauvegarde Nextcloud réussie date de {hours_since(marker.stat().st_mtime):.0f} h")
+
+    obs = Path.home() / "server/obsidian-livesync/backups/.last-success"
+    if not obs.exists() or hours_since(obs.stat().st_mtime) > BACKUP_MAX_HOURS:
+        found.append("La sauvegarde Obsidian (CouchDB) n'a pas réussi depuis plus de 30 h")
 
     usage = shutil.disk_usage("/")
     if usage.used / usage.total * 100 > DISK_MAX_PERCENT:
