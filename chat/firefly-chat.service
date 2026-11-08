@@ -1,0 +1,14 @@
+[Unit]
+Description=Firefly III web chat (see the README, "Chat")
+After=network-online.target docker.service
+
+[Service]
+# claude lives in ~/.local/bin; the unit is linked from the repository, so %h is the home directory.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+Environment=CHAT_ALLOWED_HOSTS=serveur.taile33049.ts.net
+ExecStart=/usr/bin/python3 %h/server/firefly-iii/chat/app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -12,6 +12,7 @@ Docker Compose setup for a personal [Firefly III](https://www.firefly-iii.org/) 
 | `firefly-pico` | `cioraneanu/firefly-pico:dev` (digest) | `firefly_iii_pico`     | https://$TS_HOST:8282 |
 | `cron`         | built from `cron/`                | `firefly_iii_cron`     | none (backups + daily cron) |
 | `assistant`    | built from `assistant/`           | started by Claude Code | none (MCP over stdio)       |
+| `assistant-http` | built from `assistant/`         | `firefly-iii-assistant-http-1` | https://$TS_HOST:8383/mcp (MCP over HTTP) |
 
 The services are only reachable from the Tailscale network, over HTTPS. Docker publishes their ports on `127.0.0.1` only, and [`tailscale serve`](https://tailscale.com/kb/1312/serve) proxies them:
 
@@ -19,6 +20,8 @@ The services are only reachable from the Tailscale network, over HTTPS. Docker p
 tailscale serve --bg --https=443  http://127.0.0.1:8080   # Firefly III
 tailscale serve --bg --https=8181 http://127.0.0.1:8181   # Data Importer
 tailscale serve --bg --https=8282 http://127.0.0.1:8282   # Firefly Pico
+tailscale serve --bg --https=8383 http://127.0.0.1:8383   # Assistant (MCP over HTTP)
+tailscale serve --bg --https=8686 http://127.0.0.1:8686   # Chat (web page)
 tailscale serve status
 ```
 
@@ -193,6 +196,22 @@ Rules are how transactions get filed for good: they run on every new transaction
 Spending and income figures leave out the `Dette …` and `PEA …` accounts, so family debt adjustments and PEA valuations do not count as income or spending.
 
 Claude Code starts it from [.mcp.json](.mcp.json) when a session opens in this directory (approve the `firefly` server on first use; `/mcp` shows its status). It runs in the `assistant` container on the Docker network, with `FIREFLY_TOKEN` from `.api.env` (see [PEA valuation](#pea-valuation)), and is rebuilt on each start, so changes to `server.py` apply to the next session. The `assistant` profile keeps `docker compose up` from starting it.
+
+### Remote access
+
+The `assistant-http` service runs the same server over streamable HTTP, always on, so any device on the tailnet can use it: `claude mcp add --transport http firefly https://$TS_HOST:8383/mcp`. It exposes the same tools, writes included, and has no authentication of its own: the tailnet is the only protection. Do not put it behind Tailscale Funnel. It is not usable from claude.ai connectors, which need a public URL.
+
+### Chat
+
+[chat/app.py](chat/app.py) is a web page to ask the assistant questions from any browser on the tailnet, phone included: https://$TS_HOST:8686. Each question runs `claude -p` on the host (the Claude Code login, no API key) with only the `assistant-http` MCP server and no built-in tools; the conversation continues through the Claude session id kept by the page. It listens on 127.0.0.1 and has no login of its own: the tailnet is the only protection, and it can use the write tools, so Claude is told to ask for confirmation before changing anything. Install it like the timers:
+
+```bash
+systemctl --user link $PWD/chat/firefly-chat.service
+systemctl --user enable --now firefly-chat.service
+tailscale serve --bg --https=8686 http://127.0.0.1:8686
+```
+
+Set `CHAT_ALLOWED_HOSTS` in the unit to your `TS_HOST`.
 
 ## Monthly review
 

@@ -1,6 +1,7 @@
 """MCP server giving Claude Code access to Firefly III (see the README, "Assistant").
 
-Runs over stdio in the `assistant` container, launched on demand by Claude Code (.mcp.json).
+Runs over stdio in the `assistant` container, launched on demand by Claude Code (.mcp.json), or as an
+HTTP service (`assistant-http`, MCP_TRANSPORT=http) reachable on the tailnet only.
 Needs FIREFLY_URL and FIREFLY_TOKEN; reads and edits the PEA positions in PEA_POSITIONS and the
 savings goals in GOALS_FILE.
 """
@@ -882,4 +883,20 @@ def apply_rule(title: str, start: str, end: str) -> dict:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    if os.environ.get("MCP_TRANSPORT") == "http":
+        # Persistent service behind `tailscale serve` (tailnet only); the Host header is the
+        # tailnet name, so DNS-rebinding protection is told to accept it.
+        from mcp.server.transport_security import TransportSecuritySettings
+
+        ts_host = os.environ["TS_HOST"]
+        mcp.run(
+            "streamable-http",
+            host="0.0.0.0",
+            port=8383,
+            transport_security=TransportSecuritySettings(
+                allowed_hosts=[ts_host, f"{ts_host}:8383", f"{ts_host}:443", "127.0.0.1:*", "localhost:*"],
+                allowed_origins=[f"https://{ts_host}", f"https://{ts_host}:8383"],
+            ),
+        )
+    else:
+        mcp.run()

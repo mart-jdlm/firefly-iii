@@ -175,6 +175,25 @@ services:
     volumes:
       - ./patrimoine:/patrimoine
 
+  # Same MCP server over HTTP, for clients outside this machine. Reachable on the tailnet only:
+  #   tailscale serve --bg --https=8383 http://127.0.0.1:8383   -> https://$TS_HOST:8383/mcp
+  # Same tools as the stdio one, writes included: the tailnet is the only protection.
+  assistant-http:
+    build: ./assistant
+    restart: unless-stopped
+    depends_on: [app]
+    env_file: .api.env
+    user: "1000:1000"
+    environment:
+      - TZ=Europe/Paris
+      - FIREFLY_URL=http://app:8080
+      - MCP_TRANSPORT=http
+      - TS_HOST=${TS_HOST}
+    ports:
+      - "127.0.0.1:8383:8383"
+    volumes:
+      - ./patrimoine:/patrimoine
+
 volumes:
   importer_logs:
   firefly_upload:
