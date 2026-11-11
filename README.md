@@ -22,6 +22,8 @@ tailscale serve --bg --https=8181 http://127.0.0.1:8181   # Data Importer
 tailscale serve --bg --https=8282 http://127.0.0.1:8282   # Firefly Pico
 tailscale serve --bg --https=8383 http://127.0.0.1:8383   # Assistant (MCP over HTTP)
 tailscale serve --bg --https=8686 http://127.0.0.1:8686   # Chat (web page)
+tailscale serve --bg --https=8787 http://127.0.0.1:8787   # Dashboard (web page)
+tailscale serve --bg --https=8787 --set-path=/chat http://127.0.0.1:8686   # Chat inside the dashboard
 tailscale serve status
 ```
 
@@ -200,6 +202,27 @@ Claude Code starts it from [.mcp.json](.mcp.json) when a session opens in this d
 ### Remote access
 
 The `assistant-http` service runs the same server over streamable HTTP, always on, so any device on the tailnet can use it: `claude mcp add --transport http firefly https://$TS_HOST:8383/mcp`. It exposes the same tools, writes included, and has no authentication of its own: the tailnet is the only protection. Do not put it behind Tailscale Funnel. It is not usable from claude.ai connectors, which need a public URL.
+
+### Dashboard
+
+[dashboard/app.py](dashboard/app.py) is a web app in the spirit of Finary: https://$TS_HOST:8787. It has seven tabs (sidebar on a computer, tab bar on a phone):
+
+- **Vue d'ensemble**: net worth with a hoverable curve (6 months, 1 year, 2 years), its split by account type and a few automatic insights ("À retenir").
+- **Patrimoine**: total of the assets, debts and the runway (cash and savings in months of average spending), allocation by asset class, how the assets evolved class by class, and one card per class (everyday accounts, savings, investments, debts) listing its accounts with sparklines and changes. Any Firefly asset account shows up there: `Dette …` names are debts, `PEA …` names are investments, a `savingAsset` role is savings.
+- **Budget**: income, spending and saving of a month against the previous 3 months, a cash-flow diagram (Sankey: income sources, then Firefly budgets such as Vie courante or Loisirs, then categories), the budgets' limits, spending per category and income per source. A category opens the Transactions tab filtered on it.
+- **Transactions**: every transaction of a month, searchable, filterable by category and type, grouped by day, with the raw label, accounts and notes on click.
+- **Placements**: the PEA's value (positions of `patrimoine/pea.txt` at Yahoo Finance prices, mounted read-only, plus cash), the money paid in (non-"Valorisation" transfers to the `PEA …` accounts), the gain and its percentage, value against contributions over time, positions with their day change, and allocation. Without positions it shows how to add the first ones.
+- **Assistant** (button at the bottom right, on every tab): the chat of the next section inside the page, with suggestions that depend on the open tab and the page and month being viewed sent as context. It posts to `/chat/ask` on the same origin: `tailscale serve --bg --https=8787 --set-path=/chat http://127.0.0.1:8686` routes that path to the chat service (the prefix is stripped), so the chat's own page on :8686 keeps working. It has the same tools as the chat, writes included, and asks before changing anything; the page forgets its cached data after each answer.
+- **Avenir**: planning rather than reporting. A *simulator* projects net worth month by month from the monthly saving (presets: 6-month average, last 3 complete months, last month), the share paid into the PEA, the yield of savings accounts and of the PEA, the horizon and an optional inflation correction (2 %/year); a band shows a prudent and an optimistic case (savings yield ∓0.5 point, PEA yield ∓3 points), and the headline splits the growth between contributions and returns. *Goals and piggy banks* are the active Firefly III piggy banks (plus, read-only, the account-balance goals of `patrimoine/objectifs.json`): progress, pace since the end of the month 3 months ago (the same window and figures as the assistant's `goals` tool), estimated arrival, and the monthly amount needed to meet the deadline, compared with the saving capacity. Piggy banks are created, edited, filled, emptied and deleted on the page (`POST /api/piggy`, which calls the Firefly III API), so Firefly III stays the single source of truth shared with the assistant (`piggy_bank_overview`, `set_piggy_bank`, `move_piggy_bank_money`); money put in a piggy bank stays on its account, and an account cannot give more than it holds beyond what other piggy banks already reserve. *Levers* show the average of the top expense categories and let you pick a 10, 20 or 30 % cut that is added to the simulated monthly saving.
+- **Récurrent**: upcoming bill payments, monthly and yearly cost of the subscriptions (Firefly bills) and the piggy banks as goals.
+
+It only issues GET requests to the Firefly III API with the token of `.api.env`. Its only writes are piggy banks (tirelires), through the Firefly III API: `POST /api/piggy` needs a JSON body, an `X-Requested-With: dashboard` header and a same-site `Origin`, and validates the account, amount and date; the `patrimoine` folder is mounted read-only. The services are only reachable from the Tailscale network, over HTTPS. Docker publishes their ports on `127.0.0.1` only, and [`tailscale serve`](https://tailscale.com/kb/1312/serve) proxies them:
+
+```bash
+docker compose up -d --build dashboard
+tailscale serve --bg --https=8787 http://127.0.0.1:8787
+tailscale serve --bg --https=8787 --set-path=/chat http://127.0.0.1:8686   # the assistant, inside the page
+```
 
 ### Chat
 

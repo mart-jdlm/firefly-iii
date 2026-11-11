@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Patrimoine</title>
+<link rel="stylesheet" href="/app.css">
+</head><body>
+<div class="shell">
+ <aside class="side">
+  <div class="logo"><span class="mark"></span><b>Patrimoine</b></div>
+  <nav id="nav">
+   <a href="#/overview" data-page="overview"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Vue d'ensemble</span></a>
+   <a href="#/assets" data-page="assets"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="3"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M3 13h18"/></svg><span>Patrimoine</span></a>
+   <a href="#/budget" data-page="budget"><svg viewBox="0 0 24 24"><path d="M12 3v9h9a9 9 0 1 1-9-9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/></svg><span>Budget</span></a>
+   <a href="#/transactions" data-page="transactions"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span>Transactions</span></a>
+   <a href="#/invest" data-page="invest"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg><span>Placements</span></a>
+   <a href="#/future" data-page="future"><svg viewBox="0 0 24 24"><path d="M4 21V4"/><path d="M4 5h13l-2.5 4L17 13H4"/></svg><span>Avenir</span></a>
+   <a href="#/recurring" data-page="recurring"><svg viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg><span>Récurrent</span></a>
+  </nav>
+  <div class="side-foot"><span id="stamp"></span><button class="icon" id="refresh" title="Actualiser" aria-label="Actualiser">↻</button></div>
+ </aside>
+
+ <div class="content">
+  <header class="bar">
+   <h1 id="pageTitle">Vue d'ensemble</h1>
+   <div class="nav" id="monthnav" hidden><button class="icon" id="prev" aria-label="Mois précédent">‹</button><b id="selLabel"></b><button class="icon" id="next" aria-label="Mois suivant">›</button></div>
+   <button class="icon mobile-only" id="refreshM" title="Actualiser" aria-label="Actualiser">↻</button>
+  </header>
+  <div id="err"></div>
+
+  <main id="main">
+   <!-- Vue d'ensemble -->
+   <section class="page" id="p-overview">
+    <div class="card hero mb">
+     <div class="label">Patrimoine net</div>
+     <div class="big" id="nw">—</div>
+     <div><span class="pill" id="nwDelta">&nbsp;</span><span class="when" id="nwWhen"></span></div>
+     <div class="hero-chart"><canvas id="cNw" role="img" aria-label="Évolution du patrimoine net"></canvas></div>
+     <div class="ranges" id="ranges" role="group" aria-label="Période">
+      <button data-m="6" aria-pressed="false">6 mois</button><button data-m="12" aria-pressed="true">1 an</button><button data-m="24" aria-pressed="false">2 ans</button>
+     </div>
+    </div>
+    <div class="two">
+     <section class="card"><h3>Répartition</h3><div class="seg" id="seg"></div><div class="list" id="groups"></div></section>
+     <section class="card"><h3>À retenir</h3><div class="list insights" id="insights"><div class="empty">Chargement…</div></div></section>
+    </div>
+   </section>
+
+   <!-- Patrimoine -->
+   <section class="page" id="p-assets" hidden>
+    <div class="tiles">
+     <div class="card tile"><div class="tag">Total des actifs</div><div class="kpi" id="aAssets">—</div><span class="pill" id="aAssetsD">&nbsp;</span></div>
+     <div class="card tile"><div class="tag">Dettes</div><div class="kpi" id="aDebts">—</div><span class="pill" id="aDebtsD">&nbsp;</span></div>
+     <div class="card tile"><div class="tag">Autonomie</div><div class="kpi" id="aRunway">—</div><span class="pill" id="aRunwayD">&nbsp;</span></div>
+    </div>
+    <div class="two">
+     <section class="card"><h3>Allocation</h3><p class="note">Part de chaque classe d'actifs.</p>
+      <div class="donut-wrap"><canvas id="cAlloc" role="img" aria-label="Allocation du patrimoine par classe d'actifs"></canvas><div class="mid"><b id="aTotal"></b><span>d'actifs</span></div></div>
+      <div class="list" id="aAllocList"></div></section>
+     <section class="card"><h3>Évolution des actifs</h3><p class="note" id="aEvoNote">&nbsp;</p>
+      <div class="chart"><canvas id="cAssets" role="img" aria-label="Évolution des actifs par classe"></canvas></div>
+      <div class="legend" id="aLegend"></div></section>
+    </div>
+    <div id="aClasses"></div>
+   </section>
+
+   <!-- Budget -->
+   <section class="page" id="p-budget" hidden>
+    <div class="tiles">
+     <div class="card tile"><div class="tag"><span class="dot" style="background:var(--up)"></span>Revenus</div><div class="kpi" id="kIncome">—</div><span class="pill" id="dIncome">&nbsp;</span></div>
+     <div class="card tile"><div class="tag"><span class="dot" style="background:var(--c2)"></span>Dépenses</div><div class="kpi" id="kSpend">—</div><span class="pill" id="dSpend">&nbsp;</span></div>
+     <div class="card tile"><div class="tag"><span class="dot" style="background:var(--accent)"></span>Épargne</div><div class="kpi" id="kSave">—</div><span class="pill" id="dSave">&nbsp;</span></div>
+    </div>
+    <section class="card mb"><h3>Flux d'argent</h3><p class="note">D'où vient l'argent et où il va : revenus, budgets, puis catégories.</p>
+     <div class="sankey-wrap"><svg id="sankey" role="img" aria-label="Diagramme des flux : revenus, budgets et catégories de dépenses"></svg></div></section>
+    <section class="card mb"><h3>Budgets du mois</h3><p class="note">Plafonds définis dans Firefly III.</p><div class="list" id="budgets"><div class="empty">Chargement…</div></div></section>
+    <div class="two">
+     <section class="card"><h3>Dépenses par catégorie</h3><p class="note" id="spendNote">&nbsp;</p>
+      <div class="donut-wrap"><canvas id="cDonut" role="img" aria-label="Répartition des dépenses"></canvas><div class="mid"><b id="donutTotal"></b><span>dépensés</span></div></div>
+      <div class="list" id="spendRows"></div></section>
+     <section class="card"><h3>Revenus par source</h3><p class="note">&nbsp;</p><div class="list" id="incomeRows"></div></section>
+    </div>
+    <section class="card mb"><h3>Revenus et dépenses</h3><p class="note">Cliquer sur un mois pour le détailler. L'épargne est la hausse du patrimoine net hors marché du PEA : l'argent emprunté à la famille la diminue.</p>
+     <div class="flow-chart"><canvas id="cFlow" role="img" aria-label="Revenus et dépenses par mois"></canvas></div>
+     <div class="legend"><span><i style="background:var(--up)"></i>Revenus</span><span><i style="background:var(--c2)"></i>Dépenses</span></div></section>
+   </section>
+
+   <!-- Transactions -->
+   <section class="page" id="p-transactions" hidden>
+    <div class="card mb">
+     <div class="toolbar">
+      <input id="q" type="search" placeholder="Rechercher une transaction…" autocomplete="off">
+      <select id="fcat" aria-label="Catégorie"></select>
+      <div class="seg2" id="ftype" role="group" aria-label="Type">
+       <button data-t="all" aria-pressed="true">Tout</button><button data-t="expense" aria-pressed="false">Dépenses</button><button data-t="income" aria-pressed="false">Revenus</button><button data-t="transfer" aria-pressed="false">Virements</button>
+      </div>
+     </div>
+     <div class="sumline" id="txSum"></div>
+    </div>
+    <div class="card" id="txList"><div class="empty">Chargement…</div></div>
+   </section>
+
+   <!-- Placements -->
+   <section class="page" id="p-invest" hidden>
+    <div class="tiles">
+     <div class="card tile"><div class="tag">Valeur du PEA</div><div class="kpi" id="iValue">—</div><span class="pill" id="iDay">&nbsp;</span></div>
+     <div class="card tile"><div class="tag">Versements</div><div class="kpi" id="iInvested">—</div><span class="pill">argent déposé</span></div>
+     <div class="card tile"><div class="tag">Plus-value</div><div class="kpi" id="iGain">—</div><span class="pill" id="iGainPct">&nbsp;</span></div>
+    </div>
+    <section class="card mb"><h3>Valeur et versements</h3><p class="note">L'écart entre les deux courbes est ta plus-value (ou moins-value).</p>
+     <div class="chart"><canvas id="cPea" role="img" aria-label="Valeur du PEA et versements cumulés"></canvas></div>
+     <div class="legend"><span><i style="background:var(--accent)"></i>Valeur</span><span><i style="background:var(--c7)"></i>Versements</span></div></section>
+    <div class="two" id="iHoldings">
+     <section class="card"><h3>Positions</h3><p class="note" id="iNote">&nbsp;</p><div class="list" id="iPositions"></div></section>
+     <section class="card"><h3>Répartition</h3><p class="note">&nbsp;</p>
+      <div class="donut-wrap"><canvas id="cPeaDonut" role="img" aria-label="Répartition du PEA"></canvas><div class="mid"><b id="iTotal"></b><span>au total</span></div></div>
+      <div class="list" id="iAlloc"></div></section>
+    </div>
+    <section class="card mb" id="iEmpty" hidden><h3>Comment suivre tes premiers titres</h3>
+     <p class="note">Ton PEA ne contient pour l'instant que des liquidités. Dès ton premier achat :</p>
+     <div class="list insights">
+      <div class="item"><div class="bubble">1</div><span class="name" style="white-space:normal">Note le <b>symbole Yahoo Finance</b> du titre ou de l'ETF (par exemple <b>CW8.PA</b> pour un ETF monde coté à Paris, en euros).</span></div>
+      <div class="item"><div class="bubble">2</div><span class="name" style="white-space:normal">Dis à l'assistant « j'ai acheté 2 CW8.PA et il me reste 3,20 € de liquidités », ou modifie <b>patrimoine/pea.txt</b> (modèle : pea.example.txt).</span></div>
+      <div class="item"><div class="bubble">3</div><span class="name" style="white-space:normal">La valorisation tourne chaque nuit : cette page affichera positions, variation du jour, répartition et plus-value.</span></div>
+     </div></section>
+   </section>
+
+   <!-- Avenir -->
+   <section class="page" id="p-future" hidden>
+    <section class="card mb">
+     <h3>Simulateur d'épargne</h3>
+     <p class="note">Choisis tes hypothèses : c'est une projection, pas une promesse. Les rendements passés ne préjugent pas des rendements futurs.</p>
+     <div class="ctrls">
+      <label class="ctrl"><span>Épargne par mois</span><div class="inp"><input id="fS" type="number" min="0" max="20000" step="10" inputmode="decimal"><em>€</em></div><small id="fSHint">&nbsp;</small></label>
+      <label class="ctrl"><span>Horizon : <b id="fYearsV"></b></span><input id="fYears" type="range" min="1" max="30" step="1"><small>jusqu'à <span id="fEnd"></span></small></label>
+      <label class="ctrl"><span>Part versée sur le PEA : <b id="fShareV"></b></span><input id="fShare" type="range" min="0" max="100" step="5"><small>le reste va sur les livrets</small></label>
+      <label class="ctrl"><span>Rendement des livrets</span><div class="inp"><input id="fRc" type="number" min="0" max="10" step="0.1" inputmode="decimal"><em>% / an</em></div><small>à ajuster selon le taux en vigueur</small></label>
+      <label class="ctrl"><span>Rendement du PEA</span><div class="inp"><input id="fRp" type="number" min="-10" max="20" step="0.5" inputmode="decimal"><em>% / an</em></div><small>scénarios : prudent −3 pts, optimiste +3 pts</small></label>
+      <label class="ctrl chk"><input id="fInfl" type="checkbox"><span>En euros d'aujourd'hui <small>(inflation 2 % par an)</small></span></label>
+     </div>
+     <div class="headline" id="fHead"></div>
+     <div class="chart tall"><canvas id="cFuture" role="img" aria-label="Projection du patrimoine net"></canvas></div>
+     <div class="legend"><span><i style="background:var(--fg)"></i>Historique</span><span><i style="background:var(--accent)"></i>Projection centrale</span><span><i style="background:var(--accent2);outline:1px solid var(--accent)"></i>Entre prudent et optimiste</span></div>
+     <div class="miles" id="fMiles"></div>
+    </section>
+
+    <section class="card mb">
+     <div class="chead"><h3 style="margin:0;flex:1">Objectifs et tirelires</h3><button class="btn" id="gNew" type="button">+ Nouvelle tirelire</button></div>
+     <p class="note" id="gSummary">&nbsp;</p>
+     <form class="gform" id="gForm" hidden>
+      <input id="gName" placeholder="Nom (ex. Voyage au Japon)" maxlength="60" required>
+      <select id="gAcc" aria-label="Compte"></select>
+      <div class="inp"><input id="gTarget" type="number" min="1" step="1" placeholder="Montant visé" required inputmode="decimal"><em>€</em></div>
+      <input id="gDate" type="date" aria-label="Échéance (facultatif)">
+      <div class="gbtns"><button class="btn primary" type="submit" id="gSave">Créer la tirelire</button><button class="btn" type="button" id="gCancel">Annuler</button></div>
+      <small id="gErr" class="down"></small>
+     </form>
+     <div id="goals"><div class="empty">Chargement…</div></div>
+     <p class="note" style="margin-top:14px">Ce sont de vraies tirelires Firefly III : tout ce que tu fais ici apparaît dans Firefly et chez l'assistant, et inversement. Mettre de l'argent dans une tirelire le réserve sur le compte, sans le déplacer.</p>
+    </section>
+
+    <section class="card mb">
+     <h3>Leviers : où gagner de l'épargne</h3>
+     <p class="note" id="lNote">Moyenne de tes dépenses des 3 derniers mois complets. Choisis une réduction : elle s'ajoute au simulateur.</p>
+     <div class="list" id="levers"></div>
+     <div class="lsum" id="lSum"></div>
+    </section>
+   </section>
+
+   <!-- Récurrent -->
+   <section class="page" id="p-recurring" hidden>
+    <div class="tiles">
+     <div class="card tile"><div class="tag">À venir sous 30 jours</div><div class="kpi" id="rNext">—</div><span class="pill" id="rNextN">&nbsp;</span></div>
+     <div class="card tile"><div class="tag">Coût mensuel</div><div class="kpi" id="rMonth">—</div><span class="pill" id="rMonthN">&nbsp;</span></div>
+     <div class="card tile"><div class="tag">Coût annuel</div><div class="kpi" id="rYear">—</div><span class="pill">estimation</span></div>
+    </div>
+    <div class="two">
+     <section class="card"><h3>Prochains prélèvements</h3><p class="note">Sur les 90 prochains jours.</p><div class="list" id="upcoming"></div></section>
+     <section class="card"><h3>Abonnements et factures</h3><p class="note">Équivalent mensuel de chaque abonnement.</p><div class="list" id="billList"></div></section>
+    </div>
+    <section class="card mb"><h3>Objectifs</h3><p class="note">Tirelires Firefly III.</p><div class="list" id="piggies"></div></section>
+   </section>
+  </main>
+ </div>
+
+ <nav class="tabbar" id="tabbar"></nav>
+</div>
+
+<button class="fab" id="chatOpen" aria-label="Ouvrir l'assistant"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg><span>Assistant</span></button>
+<aside class="chat" id="chat" hidden aria-label="Assistant">
+ <header><div><b>Assistant</b><small>Pose une question sur tes finances</small></div>
+  <div><button class="icon" id="chatNew" title="Nouvelle conversation" aria-label="Nouvelle conversation">+</button><button class="icon" id="chatClose" aria-label="Fermer">✕</button></div></header>
+ <div class="msgs" id="msgs"></div>
+ <form id="chatForm"><textarea id="chatQ" rows="1" placeholder="Écris ta question…" autocomplete="off"></textarea><button id="chatSend" aria-label="Envoyer">↑</button></form>
+</aside>
+<script src="/chart.js"></script>
+<script src="/app.js"></script>
+</body></html>

@@ -194,6 +194,24 @@ services:
     volumes:
       - ./patrimoine:/patrimoine
 
+  # Dashboard (income, spending, saving, net worth, projections). Reads Firefly III; it only writes piggy banks (tirelires), through the Firefly III API. Reachable on the tailnet only:
+  #   tailscale serve --bg --https=8787 http://127.0.0.1:8787   -> https://$TS_HOST:8787
+  dashboard:
+    <<: *hardened
+    build: ./dashboard
+    restart: unless-stopped
+    depends_on: [app]
+    env_file: .api.env
+    user: "1000:1000"
+    environment:
+      - TZ=Europe/Paris
+      - FIREFLY_URL=http://app:8080
+      - DASHBOARD_ALLOWED_HOSTS=${TS_HOST}
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./patrimoine:/patrimoine:ro
+
 volumes:
   importer_logs:
   firefly_upload:
