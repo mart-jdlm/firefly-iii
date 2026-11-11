@@ -45,7 +45,7 @@ function route(){
  const name=(location.hash.replace('#/','')||'overview');page=PAGES[name]?name:'overview';
  document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!=='p-'+page);
  document.querySelectorAll('#nav a,#tabbar a').forEach(a=>a.classList.toggle('on',a.dataset.page===page));
- $('pageTitle').textContent=PAGES[page];document.title=PAGES[page]+' · Patrimoine';
+ $('pageTitle').textContent=PAGES[page];document.title=PAGES[page]+' · Cairn';
  $('monthnav').hidden=!(page==='budget'||page==='transactions');
  window.scrollTo(0,0);
  if(all)renderPage();

@@ -17,8 +17,8 @@ button,input,select{font:inherit;color:inherit}
 /* shell */
 .shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
 .side{position:sticky;top:0;height:100vh;padding:22px 14px;display:flex;flex-direction:column;gap:22px;border-right:1px solid var(--line);background:var(--card)}
-.logo{display:flex;align-items:center;gap:10px;padding:0 10px;font-size:17px;letter-spacing:-.01em}
-.mark{width:26px;height:26px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--c4))}
+.logo{display:flex;align-items:center;gap:10px;padding:0 10px;font-size:19px;letter-spacing:-.02em}
+.mark{width:30px;height:30px;display:block}
 #nav{display:flex;flex-direction:column;gap:2px}
 #nav a,.tabbar a{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;color:var(--mute);text-decoration:none;font-weight:600;font-size:14.5px}
 #nav a:hover{background:var(--soft);color:var(--fg)}

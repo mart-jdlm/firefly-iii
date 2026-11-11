@@ -205,7 +205,7 @@ The `assistant-http` service runs the same server over streamable HTTP, always o
 
 ### Dashboard
 
-[dashboard/app.py](dashboard/app.py) is a web app in the spirit of Finary: https://$TS_HOST:8787. It has seven tabs (sidebar on a computer, tab bar on a phone):
+**Cairn** ([dashboard/app.py](dashboard/app.py)) is a web app in the spirit of Finary: https://$TS_HOST:8787. Its logo (three stacked pebbles) and icons are in `dashboard/static/` (`logo.svg`, `favicon.svg`, `icon-maskable.svg` and the PNGs made from it); `manifest.webmanifest` lets a phone install it on the home screen ("Add to Home Screen"). The name appears in `index.html`, `static/app.js` (page titles) and the manifest. It has seven tabs (sidebar on a computer, tab bar on a phone):
 
 - **Vue d'ensemble**: net worth with a hoverable curve (6 months, 1 year, 2 years), its split by account type and a few automatic insights ("À retenir").
 - **Patrimoine**: total of the assets, debts and the runway (cash and savings in months of average spending), allocation by asset class, how the assets evolved class by class, and one card per class (everyday accounts, savings, investments, debts) listing its accounts with sparklines and changes. Any Firefly asset account shows up there: `Dette …` names are debts, `PEA …` names are investments, a `savingAsset` role is savings.

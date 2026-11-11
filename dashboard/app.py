@@ -567,6 +567,18 @@ def data(months: int) -> dict:
         return value
 
 
+# Logo, icons and web manifest (the name and logo of the app: Cairn).
+ASSETS = {
+    "/logo.svg": ("static/logo.svg", "image/svg+xml"),
+    "/favicon.svg": ("static/favicon.svg", "image/svg+xml"),
+    "/logo-512.png": ("static/logo-512.png", "image/png"),
+    "/icon-192.png": ("static/icon-192.png", "image/png"),
+    "/icon-512.png": ("static/icon-512.png", "image/png"),
+    "/apple-touch-icon.png": ("static/apple-touch-icon.png", "image/png"),
+    "/manifest.webmanifest": ("static/manifest.webmanifest", "application/manifest+json"),
+}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "dashboard"
 
@@ -588,6 +600,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if url.path == "/":
                 return self.serve("index.html", "text/html; charset=utf-8")
+            if url.path in ASSETS:
+                name, content_type = ASSETS[url.path]
+                return self.serve(name, content_type, "public, max-age=86400")
             if url.path == "/chart.js":
                 return self.serve("static/chart.umd.js", "application/javascript", "public, max-age=86400")
             if url.path in ("/api/transactions", "/api/budgets"):
