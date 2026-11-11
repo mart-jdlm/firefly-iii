@@ -49,6 +49,10 @@ Personal finances of one person in France, from their Firefly III instance. Amou
   Never use them on transactions in category "Valorisation": cron/valuation.sh manages those.
 - set_pea_position also changes the user's data (the PEA positions file): say the old and new
   quantity first and wait for the go-ahead. The valuation books the gap at its next daily run.
+- Piggy banks (tirelires) are Firefly III objects holding part of an account's money for a purpose (a trip, an emergency fund). piggy_bank_overview lists them with the money still free on each account,
+  goals shows their pace and arrival date. set_piggy_bank and move_piggy_bank_money change them: say exactly what will change and wait for the go-ahead.
+  Several piggy banks can share one account (e.g. the Livret A), and an account with no free money cannot fill another piggy bank.
+  For a savings goal prefer a piggy bank (set_piggy_bank): it is shared with Firefly III and the dashboard. set_goal is for other goals (an account balance to reach, a debt to repay).
 - Savings goals are balance targets on an account (a savings account reaching 3000, a family debt
   reaching 0) or Firefly III piggy banks, with an optional deadline. goals shows progress at the pace of the last 3 months;
   set_goal and remove_goal change the goals file: say what will change and wait for the go-ahead."""
@@ -549,9 +553,14 @@ def piggy_banks() -> dict[str, dict]:
         events = [(e["attributes"]["created_at"][:10], money(e["attributes"]["amount"]))
                   for e in api_all(f"/piggy-banks/{piggy['id']}/events")]
         found[attr["name"]] = {
+            "id": piggy["id"],
             "balance": money(attr["current_amount"]),
             "target": money(attr["target_amount"]),
+            "date": (attr["target_date"] or "")[:10] or None,
             "account": ", ".join(a["name"] for a in attr["accounts"]),
+            "accounts": [{"account_id": a["account_id"], "name": a["name"],
+                          "current_amount": money(a["current_amount"])} for a in attr["accounts"]],
+            "active": attr["active"],
             "events": events,
         }
     return found
@@ -568,6 +577,10 @@ def goals() -> list[dict]:
     "on track", "late" or "no progress".
     """
     saved = read_goals()
+    # Every active piggy bank is a goal; the goals file can override its target and deadline.
+    piggies = {n: p for n, p in piggy_banks().items() if p["active"]}
+    listed = {g["piggy"] for g in saved if g.get("piggy")}
+    saved = saved + [{"name": n, "piggy": n} for n in piggies if n not in listed]
     if not saved:
         return []
     today = dt.date.today()
@@ -595,7 +608,7 @@ def goals() -> list[dict]:
             balance = now[source]
             pace = money((balance - before.get(source, balance)) / months_back)
         remaining = money(target - balance)
-        deadline = goal.get("date")
+        deadline = goal.get("date") or (piggies[goal["piggy"]]["date"] if goal.get("piggy") in piggies else None)
         months_left = (dt.date.fromisoformat(deadline) - today).days / 30.44 if deadline else None
         row = {"name": goal["name"], "account": source, "balance": balance, "target": target,
                "remaining": max(remaining, 0), "deadline": deadline, "pace": pace}
@@ -667,6 +680,121 @@ def remove_goal(name: str) -> list[dict]:
         raise ToolError(f'No goal named "{name}"')
     write_goals(kept)
     return goals()
+
+
+def piggy_by_name(name: str) -> dict:
+    piggy = piggy_banks().get(name)
+    if piggy is None:
+        raise ToolError(f'No piggy bank named "{name}"')
+    return piggy
+
+
+@mcp.tool(annotations=READ_ONLY)
+def piggy_bank_overview() -> list[dict]:
+    """Every Firefly III piggy bank (tirelire): amount saved, target, deadline, account, and how much
+    money of that account is still free to put in a piggy bank.
+
+    A piggy bank holds money that stays on a real account: a piggy bank can only be filled with
+    money not already assigned to another piggy bank of the same account (free_on_account).
+    Use goals for the pace, the estimated arrival and the monthly amount needed.
+    """
+    piggies = piggy_banks()
+    balances = balances_at()
+    assigned: dict[str, float] = {}
+    for p in piggies.values():
+        for a in p["accounts"]:
+            assigned[a["name"]] = assigned.get(a["name"], 0) + a["current_amount"]
+    return [
+        {"name": n, "saved": p["balance"], "target": p["target"], "left": money(p["target"] - p["balance"]),
+         "deadline": p["date"], "account": p["account"], "active": p["active"],
+         "free_on_account": money(balances.get(p["accounts"][0]["name"], 0)
+                                  - assigned.get(p["accounts"][0]["name"], 0)) if p["accounts"] else None}
+        for n, p in piggies.items()
+    ]
+
+
+@mcp.tool(annotations=WRITE)
+def set_piggy_bank(
+    name: str,
+    target: float | None = None,
+    date: str | None = None,
+    account: str | None = None,
+    new_name: str | None = None,
+) -> dict:
+    """Creates a piggy bank (tirelire) in Firefly III, or changes the target, deadline or name of an existing one.
+
+    For a new piggy bank give account (exact name of an asset account holding the money, e.g. a
+    savings account) and target (euros); date (YYYY-MM-DD) is an optional deadline. A new piggy bank
+    starts empty: use move_piggy_bank_money to put money in it. For an existing one, only the
+    arguments given change; account cannot be changed.
+    """
+    if target is not None and target <= 0:
+        raise ToolError("target must be positive")
+    if date:
+        try:
+            dt.date.fromisoformat(date)
+        except ValueError as error:
+            raise ToolError("date must be YYYY-MM-DD") from error
+    existing = piggy_banks().get(name)
+    if existing is None:
+        if not account or target is None:
+            raise ToolError("To create a piggy bank, give account and target")
+        accounts = {a["attributes"]["name"]: a["id"] for a in assets()}
+        if account not in accounts:
+            raise ToolError(f'No asset account named "{account}"')
+        body = {"name": name, "accounts": [{"account_id": accounts[account], "current_amount": "0"}],
+                "target_amount": f"{target:.2f}", "start_date": dt.date.today().isoformat(),
+                "transaction_currency_code": "EUR"}
+        if date:
+            body["target_date"] = date
+        api("/piggy-banks", method="POST", body=body)
+        action = "created"
+    else:
+        if account and account != existing["account"]:
+            raise ToolError("The account of an existing piggy bank cannot be changed")
+        body = {}
+        if target is not None:
+            body["target_amount"] = f"{target:.2f}"
+        if date:
+            body["target_date"] = date
+        if new_name:
+            body["name"] = new_name
+        if not body:
+            raise ToolError("Nothing to change: give target, date or new_name")
+        api(f"/piggy-banks/{existing['id']}", method="PUT", body=body)
+        action = "updated"
+    return {"action": action, "piggy_bank": next(p for p in piggy_bank_overview()
+                                                 if p["name"] == (new_name or name))}
+
+
+@mcp.tool(annotations=WRITE)
+def move_piggy_bank_money(name: str, amount: float) -> dict:
+    """Puts money into a piggy bank (positive amount) or takes money out of it (negative amount).
+
+    The money stays on the piggy bank's account: nothing is transferred. Firefly III refuses to put
+    in more than the account has free (see free_on_account in piggy_bank_overview) and cannot go
+    below 0. Returns the piggy bank before and after.
+    """
+    if amount == 0:
+        raise ToolError("amount cannot be 0")
+    piggy = piggy_by_name(name)
+    if not piggy["accounts"]:
+        raise ToolError("This piggy bank has no account")
+    first = piggy["accounts"][0]
+    total = money(first["current_amount"] + amount)
+    if total < 0:
+        raise ToolError(f"Only {first['current_amount']:.2f} EUR in this piggy bank, cannot take out {-amount:.2f}")
+    accounts = [{"account_id": a["account_id"],
+                 "current_amount": f"{(total if a is first else a['current_amount']):.2f}"} for a in piggy["accounts"]]
+    try:
+        api(f"/piggy-banks/{piggy['id']}", method="PUT",
+            body={"name": name, "transaction_currency_code": "EUR", "accounts": accounts})
+    except ToolError as error:
+        if "cannot be added" in str(error):
+            free = next(p["free_on_account"] for p in piggy_bank_overview() if p["name"] == name)
+            raise ToolError(f"{first['name']} has only {free:.2f} EUR not already assigned to a piggy bank") from error
+        raise
+    return {"name": name, "before": first["current_amount"], "after": total, "target": piggy["target"]}
 
 
 @mcp.tool(annotations=WRITE)
