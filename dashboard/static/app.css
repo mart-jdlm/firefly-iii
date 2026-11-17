@@ -306,3 +306,5 @@ body.priv #sankey .link{pointer-events:none}
 .md-box .seg2 button[aria-pressed=true]{background:var(--accent);color:#fff}
 #iPerfRows .vs{width:auto;white-space:nowrap;text-align:right}
 .icon{display:inline-flex;align-items:center;justify-content:center}
+/* the assistant button is a small round icon on a computer, and shows its name on hover */
+@media(min-width:761px){.fab{padding:14px;gap:0}.fab span{display:none}.fab:hover,.fab:focus-visible{padding:13px 20px 13px 16px;gap:8px}.fab:hover span,.fab:focus-visible span{display:inline}}

@@ -20,8 +20,11 @@ export const setOffline = v => { offline = v; };
 export const shown = () => all.months.slice(-range);
 export const isCurrent = i => i === all.months.length - 1;
 export function setMonth(i) { sel = Math.max(0, Math.min(all.months.length - 1, i)); hooks.render(); }
+export const nav = { keep: false };  // true while a link has just set the Transactions filters
+export const resetFilters = () => Object.assign(txf, { q: '', cat: '', bud: '', type: 'all', period: 'month' });
+export const filtering = () => !!(txf.q || txf.cat || txf.bud || txf.type !== 'all' || txf.period !== 'month');
 export function gotoTransactions(filters) {
-  Object.assign(txf, { q: '', cat: '', bud: '', type: 'all', period: 'month' }, filters);
+  resetFilters(); Object.assign(txf, filters); nav.keep = true;
   if (location.hash === '#/transactions') hooks.render(); else location.hash = '#/transactions';
 }
 export const gotoCategory = cat => gotoTransactions({ cat: cat === '(sans catégorie)' ? NONE : cat });

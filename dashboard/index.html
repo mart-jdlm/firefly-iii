@@ -110,6 +110,7 @@
       <div class="seg2" id="ftype" role="group" aria-label="Type">
        <button data-t="all" aria-pressed="true">Tout</button><button data-t="expense" aria-pressed="false">Dépenses</button><button data-t="income" aria-pressed="false">Revenus</button><button data-t="transfer" aria-pressed="false">Virements</button>
       </div>
+     <button class="btn small" id="txReset" type="button" hidden>Effacer les filtres</button>
      <button class="btn small" id="txCsv" type="button" title="Exporter la liste affichée">⬇ CSV</button>
      </div>
      <div class="sumline" id="txSum"></div>
@@ -212,7 +213,7 @@
  <nav class="tabbar" id="tabbar"></nav>
 </div>
 
-<button class="fab" id="chatOpen" aria-label="Ouvrir l'assistant"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg><span>Assistant</span></button>
+<button class="fab" id="chatOpen" aria-label="Ouvrir l'assistant" title="Assistant"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg><span>Assistant</span></button>
 <aside class="chat" id="chat" hidden aria-label="Assistant">
  <header><div><b>Assistant</b><small>Pose une question sur tes finances</small></div>
   <div><button class="icon" id="chatNew" title="Nouvelle conversation" aria-label="Nouvelle conversation">+</button><button class="icon" id="chatClose" aria-label="Fermer">✕</button></div></header>

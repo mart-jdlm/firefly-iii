@@ -2,7 +2,7 @@
 import { json } from './api.js';
 import { $, bubble, el, fail, skel } from './dom.js';
 import { clean, dlabel, esc, eur, eur2, mlabel, sign } from './format.js';
-import { NONE, all, isCurrent, memo, page, sel, txf } from './state.js';
+import { NONE, all, filtering, isCurrent, memo, page, resetFilters, sel, txf } from './state.js';
 import { editor } from './edit.js';
 import { PERIODS, buildCsv, periodRange } from './logic.js';
 
@@ -26,6 +26,7 @@ export async function renderTransactions(){
  $('selLabel').textContent=mlabel(month,true)+(isCurrent(sel)?' · en cours':'');
  $('prev').disabled=sel===0;$('next').disabled=sel===all.months.length-1;
  syncPeriod();
+ $('txReset').hidden=!filtering();
  const sp=span();
  let data=sp?memo.tx[sp.key]:[];
  if(!data){$('txList').replaceChildren(...skel(5));
@@ -96,3 +97,5 @@ $('fper').addEventListener('change',e=>{
 $('fFrom').addEventListener('change',e=>{txf.from=e.target.value;renderTransactions()});
 
 $('fTo').addEventListener('change',e=>{txf.to=e.target.value;renderTransactions()});
+
+$('txReset').addEventListener('click',()=>{resetFilters();renderTransactions()});

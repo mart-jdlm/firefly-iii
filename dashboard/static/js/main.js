@@ -10,14 +10,17 @@ import { renderInvest } from './invest.js';
 import { renderOverview } from './overview.js';
 import { renderRecurring } from './recurring.js';
 import { renderReview } from './review.js';
-import { all, hooks, memo, offline, page, sel, setAll, setMonth, setOffline, setPage, setRange, setSel } from './state.js';
+import { all, hooks, memo, nav, offline, page, resetFilters, sel, setAll, setMonth, setOffline, setPage, setRange, setSel } from './state.js';
 import { renderTransactions } from './transactions.js';
 import './add.js';
 import './privacy.js';
 import './search.js';
 
 function route(){
- const name=(location.hash.replace('#/','')||'overview');setPage(PAGES[name]?name:'overview');
+ const name=(location.hash.replace('#/','')||'overview'),was=page;setPage(PAGES[name]?name:'overview');
+ // coming to Transactions from the menu starts clean; a link from another page brings its own filters
+ if(page==='transactions'&&was!=='transactions'&&!nav.keep)resetFilters();
+ nav.keep=false;
  document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!=='p-'+page);
  document.querySelectorAll('#nav a,#tabbar a').forEach(a=>a.classList.toggle('on',a.dataset.page===page));
  document.querySelector('#tabbar a.on')?.scrollIntoView({inline:'center',block:'nearest'});
