@@ -2,8 +2,8 @@
 import { json } from './api.js';
 import { CATS, GCOL } from './consts.js';
 import { $, css, el, fail, mk, pill } from './dom.js';
-import { avg, eur, mlabel, sign } from './format.js';
-import { all, charts, gotoBudget, gotoCategory, isCurrent, memo, page, sel, setMonth, shown } from './state.js';
+import { avg, clean, eur, eur2, mlabel, sign } from './format.js';
+import { all, charts, gotoBudget, gotoCategory, gotoTransactions, isCurrent, memo, page, sel, setMonth, shown } from './state.js';
 import { yoyRows } from './logic.js';
 
 function renderFlow(){
@@ -28,7 +28,7 @@ export function renderBudget(){
  const vs=(v,k,low)=>{if(!prev.length||isCurrent(sel))return[isCurrent(sel)?'mois partiel':'',null];const d=v-avg(prev.map(p=>p[k]));return[`${sign(d)} vs moy. ${prev.length} mois`,low?d<=0:d>=0]};
  pill('dIncome',...vs(r.earned,'earned',false));pill('dSpend',...vs(r.spent,'spent',true));
  const[t,g]=vs(r.saved,'saved',false);pill('dSave',rate!==null&&!isCurrent(sel)?`${rate} % des revenus`:t,rate!==null&&!isCurrent(sel)?(r.saved>=0):g);
- renderFlow();renderSankey(r);renderBudgets(r.month);renderYoy(r);
+ renderFlow();renderSankey(r);renderBudgets(r.month);renderYoy(r);renderBig(r.month);
 
  const entries=Object.entries(r.expenses).sort((a,b)=>b[1]-a[1]),total=entries.reduce((a,[,v])=>a+v,0);
  $('donutTotal').textContent=eur(total);
@@ -131,4 +131,15 @@ async function renderSankey(r){
   if(big)frag.push(mk2('text',{x:lx,y:n.y+n.h/2+14,'text-anchor':anchor,class:'m'},eur(n.value)));
  }));
  svg.replaceChildren(...frag);
+}
+
+/* the month's five largest expenses, from the same transactions as the Transactions tab */
+async function renderBig(month){
+ const box=$('bigRows');
+ let data=memo.tx[month];
+ try{if(!data)data=memo.tx[month]=await json('/api/transactions?month='+month)}catch(e){fail(box,'Dépenses indisponibles',()=>renderBig(month));return}
+ if(page!=='budget'||month!==all.months[sel].month)return;
+ const top=data.filter(t=>t.type==='withdrawal').sort((a,b)=>b.amount-a.amount).slice(0,5);
+ box.replaceChildren(...(top.length?top.map(t=>el('div',{className:'item click',title:'Voir la transaction',onclick:()=>gotoTransactions({q:t.description,type:'expense'})},
+  [el('span',{className:'name'},[clean(t.description),el('small',{textContent:`${t.date.slice(8)}/${t.date.slice(5,7)}${t.category?' · '+t.category:''}`})]),el('span',{className:'amt',textContent:eur2(t.amount)})])):[el('div',{className:'empty',textContent:'Aucune dépense ce mois-ci'})]));
 }

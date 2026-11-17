@@ -91,7 +91,10 @@
      <section class="card"><h3>Dépenses par catégorie</h3><p class="note" id="spendNote">&nbsp;</p>
       <div class="donut-wrap"><canvas id="cDonut" role="img" aria-label="Répartition des dépenses"></canvas><div class="mid"><b id="donutTotal"></b><span>dépensés</span></div></div>
       <div class="list" id="spendRows"></div></section>
-     <section class="card"><h3>Revenus par source</h3><p class="note">&nbsp;</p><div class="list" id="incomeRows"></div></section>
+     <div class="stack">
+      <section class="card"><h3>Revenus par source</h3><p class="note">D'où vient l'argent ce mois-ci.</p><div class="list" id="incomeRows"></div></section>
+      <section class="card" id="bigCard"><h3>Plus grosses dépenses</h3><p class="note">Les 5 plus importantes du mois. Un clic ouvre la transaction.</p><div class="list" id="bigRows"></div></section>
+     </div>
     </div>
     <section class="card mb"><h3>Revenus et dépenses</h3><p class="note">Cliquer sur un mois pour le détailler. L'épargne est la hausse du patrimoine net hors marché du PEA : l'argent emprunté à la famille la diminue.</p>
      <div class="flow-chart"><canvas id="cFlow" role="img" aria-label="Revenus et dépenses par mois"></canvas></div>

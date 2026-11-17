@@ -343,3 +343,6 @@ a:focus-visible,button:focus-visible,[tabindex]:focus-visible,select:focus-visib
 }
 @media(min-width:761px){.sheet{display:none!important}}
 @media(prefers-reduced-motion:reduce){.sheet-box{animation:none}}
+/* a column of cards beside a taller one, and the simulator's controls in two even rows */
+.stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+@media(min-width:900px){.ctrls{grid-template-columns:repeat(3,minmax(0,1fr))}}
