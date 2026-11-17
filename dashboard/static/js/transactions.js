@@ -37,10 +37,10 @@ export async function renderTransactions(){
  const cats=[...new Set(data.map(t=>t.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
  const fcat=$('fcat');
  const none=el('option',{value:NONE,textContent:'Sans catégorie'});
- fcat.replaceChildren(el('option',{value:'',textContent:'Toutes les catégories'}),none,...cats.map(c=>el('option',{value:c,textContent:c})));
+ fcat.replaceChildren(el('option',{value:'',textContent:'Catégories'}),none,...cats.map(c=>el('option',{value:c,textContent:c})));
  const buds=[...new Set(data.map(t=>t.budget).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
  const fbud=$('fbud');
- fbud.replaceChildren(el('option',{value:'',textContent:'Tous les budgets'}),el('option',{value:NONE,textContent:'Sans budget'}),...buds.map(c=>el('option',{value:c,textContent:c})));
+ fbud.replaceChildren(el('option',{value:'',textContent:'Budgets'}),el('option',{value:NONE,textContent:'Sans budget'}),...buds.map(c=>el('option',{value:c,textContent:c})));
  if(txf.cat&&txf.cat!==NONE&&!cats.includes(txf.cat))fcat.append(el('option',{value:txf.cat,textContent:txf.cat}));
  if(txf.bud&&txf.bud!==NONE&&!buds.includes(txf.bud))fbud.append(el('option',{value:txf.bud,textContent:txf.bud}));
  fcat.value=txf.cat;fbud.value=txf.bud;$('q').value=txf.q;
@@ -50,7 +50,7 @@ export async function renderTransactions(){
  txShown=list;
  const spent=list.filter(t=>kind(t)==='expense').reduce((a,t)=>a+t.amount,0),got=list.filter(t=>kind(t)==='income').reduce((a,t)=>a+t.amount,0);
  $('txSum').replaceChildren(...(sp&&sp.range?[el('span',{textContent:`Du ${dshort(sp.range[0])} au ${dshort(sp.range[1])}`})]:[]),el('span',{},[el('b',{textContent:list.length}),' opération'+(list.length>1?'s':'')]),el('span',{},['Dépenses ',el('b',{textContent:eur(spent)})]),el('span',{},['Revenus ',el('b',{textContent:eur(got)})]));
- if(!list.length){$('txList').replaceChildren(el('div',{className:'empty',textContent:'Aucune transaction ne correspond'}));return}
+ if(!list.length){$('txList').replaceChildren(el('div',{className:'empty'},['Aucune transaction ne correspond',...(filtering()?[el('button',{className:'btn small',type:'button',textContent:'Effacer les filtres',onclick:()=>{resetFilters();renderTransactions()}})]:[])]));return}
  const byDay={};list.forEach(t=>(byDay[t.date]=byDay[t.date]||[]).push(t));
  const out=[];
  Object.keys(byDay).sort().reverse().forEach(d=>{

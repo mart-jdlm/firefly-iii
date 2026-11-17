@@ -308,3 +308,23 @@ body.priv #sankey .link{pointer-events:none}
 .icon{display:inline-flex;align-items:center;justify-content:center}
 /* the assistant button is a small round icon on a computer, and shows its name on hover */
 @media(min-width:761px){.fab{padding:14px;gap:0}.fab span{display:none}.fab:hover,.fab:focus-visible{padding:13px 20px 13px 16px;gap:8px}.fab:hover span,.fab:focus-visible span{display:inline}}
+/* interface polish: clear keyboard focus, hover on clickable rows, page fade-in, compact mobile header and filters */
+a:focus-visible,button:focus-visible,[tabindex]:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:10px}
+.tx{border-radius:12px;margin:0 -8px;padding:9px 8px;transition:background .12s}
+.tx:hover{background:var(--soft)}
+.det{margin-left:42px}
+.item.click,.bud.click,.item.alert.click{transition:background .12s}
+.item.alert.click{cursor:pointer;border-radius:12px}.item.alert.click:hover{background:var(--soft)}
+.page:not([hidden]){animation:pagein .18s ease-out}
+@keyframes pagein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.page:not([hidden]){animation:none}}
+@media(max-width:760px){
+ .bar{gap:8px 8px}
+ .bar h1{order:1;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .bar>.icon{order:2;width:36px;height:36px}
+ .bar #addBtn{margin-left:0}
+ .bar .nav{order:3;flex:0 0 100%;justify-content:space-between}
+ .toolbar select{flex:1 1 calc(50% - 10px);min-width:0}
+ .toolbar .dates{flex:1 1 100%}.toolbar .dates input{flex:1;width:auto}
+ .toolbar .seg2{max-width:100%;overflow-x:auto}
+}

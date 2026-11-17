@@ -185,7 +185,7 @@ export function simulate(flows, prices) {
   };
 }
 
-export const PERIODS = [['month', 'Mois sélectionné'], ['30d', '30 derniers jours'], ['3m', '3 derniers mois'], ['6m', '6 derniers mois'],
+export const PERIODS = [['month', 'Mois choisi'], ['30d', '30 derniers jours'], ['3m', '3 derniers mois'], ['6m', '6 derniers mois'],
   ['ytd', "Depuis janvier"], ['12m', '12 derniers mois'], ['custom', 'Dates précises…']];
 
 /** [start, end] (YYYY-MM-DD) of a preset period ending today: the 3, 6 and 12 month ones start on
