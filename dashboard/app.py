@@ -216,6 +216,39 @@ def everyday_ids() -> set[str]:
             if not a["attributes"]["name"].startswith((DEBT_PREFIX, INVESTMENT_PREFIX))}
 
 
+def everyday_row(t: dict, group_id: str, everyday: set[str]) -> dict | None:
+    """A search hit as the page shows it, or None when it does not touch an everyday account
+    (the PEA, family debts) or is a PEA valuation."""
+    if t["category_name"] == "Valorisation":
+        return None
+    kind = t["type"]
+    mine = (t["source_id"] in everyday if kind == "withdrawal"
+            else t["destination_id"] in everyday if kind == "deposit"
+            else t["source_id"] in everyday or t["destination_id"] in everyday)
+    if not mine:
+        return None
+    return {"id": t["transaction_journal_id"], "group": group_id, "date": t["date"][:10], "type": kind,
+            "description": t["description"], "amount": money(t["amount"]),
+            "category": t["category_name"], "budget": t["budget_name"],
+            "source": t["source_name"], "destination": t["destination_name"],
+            "notes": t["notes"], "bill": t["bill_name"]}
+
+
+def search_transactions(text: str) -> list[dict]:
+    """The 30 most recent transactions whose description matches `text`, on any date."""
+    text = " ".join(text.split())[:80]
+    if len(text) < 2:
+        return []
+    everyday = everyday_ids()
+    found = []
+    for group in api("/search/transactions", {"query": f'description_contains:"{text.replace(chr(34), "")}"', "limit": 100})["data"]:
+        for t in group["attributes"]["transactions"]:
+            row = everyday_row(t, group["id"], everyday)
+            if row:
+                found.append(row)
+    return sorted(found, key=lambda t: (t["date"], t["id"]), reverse=True)[:30]
+
+
 def month_transactions(month: str) -> list[dict]:
     """Every transaction of a month touching an everyday account, newest first."""
     year, mon = map(int, month.split("-"))
@@ -228,22 +261,9 @@ def month_transactions(month: str) -> list[dict]:
         body = api("/search/transactions", {"query": query, "limit": 200, "page": page})
         for group in body["data"]:
             for t in group["attributes"]["transactions"]:
-                day = t["date"][:10]
-                if not start <= day <= end or t["category_name"] == "Valorisation":
-                    continue
-                kind = t["type"]
-                mine = (t["source_id"] in everyday if kind == "withdrawal"
-                        else t["destination_id"] in everyday if kind == "deposit"
-                        else t["source_id"] in everyday or t["destination_id"] in everyday)
-                if not mine:
-                    continue
-                found.append({
-                    "id": t["transaction_journal_id"], "group": group["id"], "date": day, "type": kind,
-                    "description": t["description"], "amount": money(t["amount"]),
-                    "category": t["category_name"], "budget": t["budget_name"],
-                    "source": t["source_name"], "destination": t["destination_name"],
-                    "notes": t["notes"], "bill": t["bill_name"],
-                })
+                row = everyday_row(t, group["id"], everyday)
+                if row and start <= row["date"] <= end:
+                    found.append(row)
         if page >= body["meta"]["pagination"]["total_pages"]:
             break
         page += 1
@@ -792,6 +812,10 @@ class Handler(BaseHTTPRequestHandler):
                 dt.datetime.strptime(month, "%Y-%m")
                 make = month_transactions if url.path == "/api/transactions" else month_budgets
                 return self.reply(200, json.dumps(cached(f"{url.path}{month}", lambda: make(month))).encode(),
+                                  "application/json")
+            if url.path == "/api/search":
+                text = urllib.parse.parse_qs(url.query).get("q", [""])[0]
+                return self.reply(200, json.dumps(cached(f"search{text.casefold()}", lambda: search_transactions(text))).encode(),
                                   "application/json")
             if url.path == "/api/alerts":
                 return self.reply(200, json.dumps(cached("alerts", alerts_data)).encode(), "application/json")

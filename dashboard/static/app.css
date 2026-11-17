@@ -264,3 +264,16 @@ body.loading .kpi,body.loading .big{opacity:.45;transition:opacity .2s}
 .toast.bad{background:var(--down);color:#fff}
 .bud.click{cursor:pointer}.bud.click:hover .row b{color:var(--accent)}
 #sankey .go{cursor:pointer}#sankey rect.go:hover{opacity:.75}#sankey text.go:hover{fill:var(--accent)}
+/* global search */
+.sr{position:fixed;inset:0;z-index:60;background:#0006;display:flex;justify-content:center;align-items:flex-start;padding:min(14vh,110px) 16px 16px}
+.sr-box{width:min(620px,100%);max-height:min(70vh,560px);display:flex;flex-direction:column;background:var(--card);border-radius:18px;box-shadow:0 20px 60px #0005;overflow:hidden}
+.sr-box input{border:0;border-bottom:1px solid var(--line);background:transparent;padding:16px 18px;font-size:16px;outline:none;color:var(--fg)}
+.sr-list{overflow-y:auto;padding:6px}
+.sr-head{padding:10px 12px 4px;font-size:11.5px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+.sr-item{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:10px;cursor:pointer}
+.sr-item.on{background:var(--soft)}
+.sr-ic{width:22px;text-align:center;flex:none}.sr-tx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-hint{color:var(--mute);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.sr-empty{color:var(--mute);text-align:center;padding:18px 0;font-size:13.5px}
+.sr-foot{padding:8px 14px;border-top:1px solid var(--line);font-size:11.5px;color:var(--mute)}
+@media(max-width:700px){.sr-foot{display:none}}

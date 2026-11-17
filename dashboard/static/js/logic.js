@@ -136,3 +136,10 @@ export function buildCsv(transactions) {
       [t.date, type[t.type] || t.type, q(t.description), num(t), q(t.category), q(t.budget), q(t.source), q(t.destination), q(t.notes)].join(';'))];
   return '﻿' + lines.join('\r\n');
 }
+
+/** Accent- and case-insensitive match of every word of `query` in `text` (an empty query matches). */
+export function matches(query, text) {
+  const norm = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const t = norm(text);
+  return norm(query).split(/\s+/).filter(Boolean).every(w => t.includes(w));
+}

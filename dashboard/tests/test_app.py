@@ -471,6 +471,34 @@ class AlertsTests(unittest.TestCase):
         self.assertEqual(app.alerts_from(self.history([]), self.TODAY)["uncategorised"], {"count": 0, "amount": 0.0, "month": None})
 
 
+class SearchTests(unittest.TestCase):
+    @staticmethod
+    def hit(i, src, dst, kind="withdrawal", cat="Courses", date="2026-10-05"):
+        return {"transaction_journal_id": i, "date": date + "T10:00:00+01:00", "type": kind, "description": f"Carrefour {i}", "amount": "10",
+                "category_name": cat, "budget_name": None, "source_id": src, "source_name": "s", "destination_id": dst,
+                "destination_name": "d", "notes": None, "bill_name": None}
+
+    def search(self, text, hits):
+        body = {"data": [{"id": "g", "attributes": {"transactions": hits}}]}
+        with mock.patch.object(app, "api", mock.Mock(return_value=body)) as api, \
+             mock.patch.object(app, "api_all", router({"/accounts": [account("1", "Compte", 0), account("5", "PEA Bourse", 0)]})):
+            return app.search_transactions(text), api
+
+    def test_short_text_asks_nothing(self):
+        got, api = self.search("a", [])
+        self.assertEqual(got, []); api.assert_not_called()
+
+    def test_keeps_everyday_hits_newest_first_and_drops_the_pea_and_valuations(self):
+        hits = [self.hit(1, "1", "99"), self.hit(2, "5", "99"), self.hit(3, "1", "99", cat="Valorisation"),
+                self.hit(4, "99", "1", kind="deposit", date="2026-11-02")]
+        got, _ = self.search("carrefour", hits)
+        self.assertEqual([t["id"] for t in got], [4, 1])
+
+    def test_quotes_cannot_break_out_of_the_query(self):
+        _, api = self.search('a" type:transfer "b', [])
+        self.assertEqual(api.call_args.args[1]["query"], 'description_contains:"a type:transfer b"')
+
+
 class HttpTests(unittest.TestCase):
     """The real Handler on a local port, the data layer faked."""
 

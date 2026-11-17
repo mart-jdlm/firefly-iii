@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, project, runway, sortBills, yoyRows } from '../../static/js/logic.js';
+import { billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, matches, project, runway, sortBills, yoyRows } from '../../static/js/logic.js';
 
 const plain = s => s.replace(/[  ]/g, ' ');
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} is not ${b}`);
@@ -239,4 +239,11 @@ test('extraAlerts: nothing without data, and each kind becomes a clickable item'
 test('extraAlerts shortens a long description', () => {
   const [item] = extraAlerts({ unusual: [{ description: 'x'.repeat(80), date: '2026-11-10', amount: 99, category: 'C', usual: 10 }] });
   assert.ok(item[3].startsWith('x'.repeat(47) + '…'));
+});
+
+test('matches ignores case and accents and needs every word', () => {
+  assert.ok(matches('', 'Budget'));
+  assert.ok(matches('sante', 'Santé'));
+  assert.ok(matches('REST fast', 'Restaurants & Fast Food'));
+  assert.ok(!matches('voiture jeux', 'Voiture'));
 });
