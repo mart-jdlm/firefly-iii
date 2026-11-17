@@ -665,6 +665,41 @@ class CreateTransactionTests(unittest.TestCase):
             self.assertIn(message, str(ctx.exception)); write.assert_not_called()
 
 
+class SuggestionTests(unittest.TestCase):
+    TAX = {"categories": ["Aide familiale"], "budgets": [], "accounts": []}
+
+    def apply(self, current_category=None, **body):
+        journal = {"data": {"id": "30", "attributes": {"transactions": [{"transaction_journal_id": "492", "category_name": current_category}]}}}
+        with mock.patch.object(app, "taxonomy", return_value=self.TAX), mock.patch.object(app, "api", return_value=journal) as read, \
+             mock.patch.object(app, "api_write") as write:
+            app.apply_suggestion({"id": 492, "category": "Aide familiale", **body})
+        return read, write
+
+    def test_only_the_category_is_set_and_the_group_is_found_from_the_journal(self):
+        read, write = self.apply()
+        self.assertEqual(read.call_args.args[0], "/transaction-journals/492")
+        method, path, payload = write.call_args.args
+        self.assertEqual((method, path), ("PUT", "/transactions/30"))
+        self.assertEqual(payload["transactions"], [{"transaction_journal_id": "492", "category_name": "Aide familiale"}])
+
+    def test_it_never_replaces_a_category_nor_accepts_an_unknown_one(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.apply(current_category="Courses")
+        self.assertIn("déjà", str(ctx.exception))
+        for category in ("", "Inventée"):
+            with self.assertRaises(ValueError):
+                self.apply(category=category)
+
+    def test_the_review_drops_what_was_filed_since_and_survives_a_failure(self):
+        rows = [{"id": "539"}, {"id": "492"}]
+        body = {"data": [{"attributes": {"transactions": [{"transaction_journal_id": "492"}]}}]}
+        with mock.patch.object(app, "api", return_value=body):
+            self.assertEqual(app.still_uncategorised(rows, "2026-10-01", "2026-10-31"), [{"id": "492"}])
+        with mock.patch.object(app, "api", side_effect=urllib.error.URLError("down")):
+            self.assertEqual(app.still_uncategorised(rows, "2026-10-01", "2026-10-31"), rows)
+        self.assertEqual(app.still_uncategorised([], "2026-10-01", "2026-10-31"), [])
+
+
 class HttpTests(unittest.TestCase):
     """The real Handler on a local port, the data layer faked."""
 

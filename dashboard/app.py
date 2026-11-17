@@ -689,6 +689,23 @@ def categorize(body: dict) -> dict:
     return {"applied": applied}
 
 
+def apply_suggestion(body: dict) -> None:
+    """File one uncategorised transaction under a category suggested by the review. Never replaces
+    a category, and keeps the budget and everything else as is."""
+    journal, category = int(body.get("id", 0)), str(body.get("category") or "").strip()
+    if not category or category not in taxonomy()["categories"]:
+        raise ValueError("Catégorie inconnue")
+    group = api(f"/transaction-journals/{journal}")["data"]
+    current = next((t for t in group["attributes"]["transactions"] if int(t["transaction_journal_id"]) == journal), None)
+    if current is None:
+        raise ValueError("Transaction introuvable")
+    if current["category_name"]:
+        raise ValueError("Cette transaction a déjà une catégorie")
+    api_write("PUT", f"/transactions/{group['id']}", {
+        "apply_rules": False, "fire_webhooks": False,
+        "transactions": [{"transaction_journal_id": str(journal), "category_name": category}]})
+
+
 def create_transaction(body: dict) -> None:
     """Record an expense or an income on an everyday account (cash, a payment the bank import will
     not bring). Firefly III's rules run on it, so it is filed like the imported ones unless a
@@ -775,6 +792,21 @@ def reviews_list() -> list[dict]:
     return out
 
 
+def still_uncategorised(rows: list[dict], start: str, end: str) -> list[dict]:
+    """The review was written at the start of the month: drop what has been filed since. Kept as
+    is when Firefly III cannot be asked."""
+    if not rows:
+        return rows
+    first, last = dt.date.fromisoformat(start), dt.date.fromisoformat(end)
+    query = f"has_no_category:true date_after:{first - dt.timedelta(days=1)} date_before:{last + dt.timedelta(days=1)}"
+    try:
+        body = api("/search/transactions", {"query": query, "limit": 200})
+    except (urllib.error.URLError, ValueError):
+        return rows
+    open_ids = {str(t["transaction_journal_id"]) for g in body["data"] for t in g["attributes"]["transactions"]}
+    return [r for r in rows if str(r.get("id")) in open_ids]
+
+
 def review_data(month: str) -> dict:
     """One review for the page: the figures worth showing (not every transaction) and the comments."""
     facts, comments = read_review_file(month, "facts.json"), read_review_file(month, "comments.json")
@@ -784,6 +816,7 @@ def review_data(month: str) -> dict:
             "net_worth_by_month", "groups", "categories", "uncategorised", "budgets", "upcoming_bills", "goals")
     shown = {k: facts[k] for k in keep if k in facts}
     shown["largest"] = [t for t in facts.get("largest", []) if t.get("type") == "withdrawal"][:6]
+    shown["uncategorised"] = still_uncategorised(shown.get("uncategorised", []), *month_bounds(*map(int, month.split("-"))))
     return {"facts": shown, "comments": comments,
             "has_html": os.path.isfile(os.path.join(BILANS_DIR, f"{month}.html"))}
 
@@ -1073,7 +1106,7 @@ class Handler(BaseHTTPRequestHandler):
                 or "application/json" not in (self.headers.get("Content-Type") or "")):
             return self.reply(400, b"bad request", "text/plain")
         piggy = {"create": create_piggy, "update": update_piggy, "move": move_piggy, "delete": delete_piggy}
-        routes = {"/api/piggy": (piggy, ("goals",)), "/api/transaction": ({"categorize": categorize, "create": create_transaction}, None)}
+        routes = {"/api/piggy": (piggy, ("goals",)), "/api/transaction": ({"categorize": categorize, "create": create_transaction, "suggest": apply_suggestion}, None)}
         try:
             length = int(self.headers.get("Content-Length", 0))
             if not 0 < length <= 4000:
