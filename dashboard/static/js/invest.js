@@ -34,7 +34,7 @@ export async function renderInvest(){
    scales:{x:{grid:{display:false},border:{display:false},ticks:{color:css('--mute'),maxRotation:0,autoSkip:true,maxTicksLimit:7}},y:{beginAtZero:true,grid:{color:css('--line')},border:{display:false},ticks:{color:css('--mute'),callback:v=>eur(v),maxTicksLimit:5}}}}});
 
  $('iLegB').hidden=!bench;if(bench)$('iLegBn').textContent=bench.label;
- renderPerf({value,flows,bench,todayIso,worth});
+ renderPerf({value,flows,bench,todayIso,worth,dividends:d.dividends||[],fees:d.fees||[]});
 
  // positions and allocation
  const empty=!d.positions.length;
@@ -56,15 +56,19 @@ export async function renderInvest(){
 }
 
 /* Performance card: yearly return, return without the deposits, and the same deposits in an index. */
-function renderPerf({value,flows,bench,todayIso,worth}){
+function renderPerf({value,flows,bench,todayIso,worth,dividends,fees}){
  const pc=(v,d=1)=>`${v>=0?'+':'−'}${Math.abs(v*100).toFixed(d).replace('.',',')} %`;
  const row=(name,hint,text,tone)=>el('div',{className:'item'},[el('span',{className:'name',style:'white-space:normal'},[name,el('small',{textContent:hint})]),el('span',{className:'vs'+(tone===true?' up':tone===false?' down':''),textContent:text})]);
- if(!flows.length){$('iPerf').hidden=true;return}
+ if(!flows.length&&!dividends.length&&!fees.length){$('iPerf').hidden=true;return}
  $('iPerf').hidden=false;
  const r=xirr(flows,value,todayIso),t=twr(all.months.map(m=>({month:m.month,value:worth(m)})),flows);
  const out=[
   row('Rendement annualisé','Tient compte de la date de chaque versement',r===null?'après 3 mois':pc(r),r===null?null:r>=0),
   row('Performance des placements','Sans l\'effet des versements',t===null?'—':pc(t),t===null?null:t>=0)];
+ const sum=l=>l.reduce((a,x)=>a+x.amount,0),year=todayIso.slice(0,4);
+ const last12=l=>sum(l.filter(x=>x.date>`${+year-1}${todayIso.slice(4)}`));
+ if(dividends.length)out.push(row('Dividendes reçus',`${eur2(last12(dividends))} sur les 12 derniers mois`,eur2(sum(dividends)),true));
+ if(fees.length)out.push(row('Frais payés',`${eur2(last12(fees))} sur les 12 derniers mois`,'−'+eur2(sum(fees)),false));
  if(bench){
   const b=bench.at(todayIso),invested=flows.reduce((a,f)=>a+f.amount,0),diff=value-b;
   out.push(row(`Même argent en ${bench.label}`,"Tes versements, placés le jour où tu les as faits",eur2(b),null),

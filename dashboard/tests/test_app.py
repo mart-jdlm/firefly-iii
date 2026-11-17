@@ -585,6 +585,25 @@ class ReviewTests(unittest.TestCase):
                 app.read_review_file(bad, "html")
 
 
+class PeaKindTests(unittest.TestCase):
+    def test_categories_decide_what_a_pea_transaction_is(self):
+        for category, kind in (("Dividendes", "dividend"), ("dividende ETF", "dividend"), ("Frais de courtage", "fee"),
+                               ("Commissions", "fee"), ("Valo", "flow"), (None, "flow"), ("Virements émis", "flow")):
+            self.assertEqual(app.pea_kind(category), kind, category)
+
+    def test_dividends_and_fees_stay_out_of_the_deposits(self):
+        pea = account("5", "PEA Bourse", 1000)
+        def tx(date, src, dst, amount, cat=None):
+            return {"attributes": {"transactions": [{"date": date + "T00:00:00+01:00", "source_id": src, "destination_id": dst, "amount": amount, "category_name": cat}]}}
+        history = [tx("2026-08-10", "1", "5", "300"), tx("2026-09-01", "9", "5", "4.5", cat="Dividendes"), tx("2026-09-02", "5", "8", "1.2", cat="Frais de courtage")]
+        with mock.patch.object(app, "api_all", router({"/accounts": [pea], "/accounts/5/transactions": history})), \
+             mock.patch.object(app, "read_positions", return_value=None), mock.patch.object(app, "benchmark_data", return_value=None):
+            got = app.pea_data()
+        self.assertEqual(got["invested"], 300.0); self.assertEqual([f["amount"] for f in got["flows"]], [300.0])
+        self.assertEqual(got["dividends"], [{"date": "2026-09-01", "amount": 4.5}])
+        self.assertEqual(got["fees"], [{"date": "2026-09-02", "amount": 1.2}])
+
+
 class HttpTests(unittest.TestCase):
     """The real Handler on a local port, the data layer faked."""
 

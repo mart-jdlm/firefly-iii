@@ -380,6 +380,20 @@ def read_positions() -> list[dict] | None:
     return lines
 
 
+DIVIDEND_WORDS = re.compile(r"dividende", re.I)
+FEE_WORDS = re.compile(r"frais|courtage|commission", re.I)
+
+
+def pea_kind(category: str | None) -> str:
+    """How a PEA transaction counts: its category says dividend or fee, anything else is a deposit
+    or withdrawal of the owner's own money."""
+    if category and DIVIDEND_WORDS.search(category):
+        return "dividend"
+    if category and FEE_WORDS.search(category):
+        return "fee"
+    return "flow"
+
+
 def benchmark_data(flows: list[dict]) -> dict | None:
     prices = yahoo_history(BENCHMARK, flows[0]["date"]) if flows else None
     return {"symbol": BENCHMARK, "label": BENCHMARK_LABEL, "prices": prices} if prices else None
@@ -391,6 +405,7 @@ def pea_data() -> dict:
     balance = money(sum(float(a["attributes"]["current_balance"]) for a in accounts))
     monthly: dict[str, float] = {}
     flows: list[dict] = []
+    extras = {"dividend": [], "fee": []}  # what the PEA earned or paid itself, by date
     for account in accounts:
         for group in api_all(f"/accounts/{account['id']}/transactions", {"type": "all"}):
             for t in group["attributes"]["transactions"]:
@@ -402,6 +417,10 @@ def pea_data() -> dict:
                 elif t["source_id"] == account["id"]:
                     amount = -amount
                 else:
+                    continue
+                kind = pea_kind(t["category_name"])
+                if kind != "flow":
+                    extras[kind].append({"date": t["date"][:10], "amount": abs(money(amount))})
                     continue
                 month = t["date"][:7]
                 monthly[month] = round(monthly.get(month, 0) + amount, 2)
@@ -428,7 +447,9 @@ def pea_data() -> dict:
     else:
         cash = balance
     return {"has_file": lines is not None, "balance": balance, "invested": invested,
-            "contributions": monthly, "flows": flows, "positions": positions, "cash": money(cash),
+            "contributions": monthly, "flows": flows,
+            "dividends": sorted(extras["dividend"], key=lambda e: e["date"]),
+            "fees": sorted(extras["fee"], key=lambda e: e["date"]), "positions": positions, "cash": money(cash),
             "benchmark": benchmark_data(flows)}
 
 
