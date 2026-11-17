@@ -619,8 +619,10 @@ def delete_piggy(body: dict) -> None:
 def taxonomy() -> dict:
     """Names of the categories and budgets, for the pickers of the transaction editor."""
     names = lambda path: sorted((r["attributes"]["name"] for r in api_all(path)), key=str.casefold)
+    accounts = [a["attributes"]["name"] for a in api_all("/accounts", {"type": "asset"})
+                if a["attributes"]["active"] and not a["attributes"]["name"].startswith((DEBT_PREFIX, INVESTMENT_PREFIX))]
     return {"categories": [c for c in names("/categories") if c != "Valorisation"],
-            "budgets": names("/budgets")}
+            "budgets": names("/budgets"), "accounts": sorted(accounts, key=str.casefold)}
 
 
 RULE_GROUP = "Catégorisation automatique"
@@ -653,6 +655,49 @@ def categorize(body: dict) -> None:
         if len(text) < 3 or not category:
             raise ValueError("Pour une règle, il faut une catégorie et au moins 3 caractères")
         add_rule(text, category, budget, current["type"])
+
+
+def create_transaction(body: dict) -> None:
+    """Record an expense or an income on an everyday account (cash, a payment the bank import will
+    not bring). Firefly III's rules run on it, so it is filed like the imported ones unless a
+    category is given."""
+    kind = body.get("kind")
+    if kind not in ("expense", "income"):
+        raise ValueError("Type inconnu")
+    try:
+        amount = round(float(str(body.get("amount", "")).replace(",", ".").replace(" ", "")), 2)
+    except ValueError:
+        raise ValueError("Montant invalide") from None
+    if not 0 < amount <= 1_000_000:
+        raise ValueError("Montant invalide")
+    description = " ".join(str(body.get("description") or "").split())
+    if not 1 <= len(description) <= 120:
+        raise ValueError("Il faut un libellé (120 caractères au plus)")
+    try:
+        date = dt.date.fromisoformat(str(body.get("date")))
+    except ValueError:
+        raise ValueError("Date invalide") from None
+    if not dt.date(2000, 1, 1) <= date <= dt.date.today():
+        raise ValueError("La date ne peut pas être dans le futur")
+    known = taxonomy()
+    account, category = str(body.get("account") or ""), str(body.get("category") or "").strip()
+    budget = str(body.get("budget") or "").strip() if kind == "expense" else ""
+    if account not in known["accounts"]:
+        raise ValueError("Compte inconnu")
+    if category and category not in known["categories"]:
+        raise ValueError("Catégorie inconnue")
+    if budget and budget not in known["budgets"]:
+        raise ValueError("Budget inconnu")
+    entry = {"type": "withdrawal" if kind == "expense" else "deposit", "date": date.isoformat(),
+             "amount": f"{amount:.2f}", "description": description,
+             "source_name": account if kind == "expense" else description,
+             "destination_name": description if kind == "expense" else account}
+    if category:
+        entry["category_name"] = category
+    if budget:
+        entry["budget_name"] = budget
+    api_write("POST", "/transactions", {"apply_rules": True, "fire_webhooks": False, "error_if_duplicate_hash": False,
+                                        "transactions": [entry]})
 
 
 def add_rule(text: str, category: str, budget: str, kind: str) -> None:
@@ -991,7 +1036,7 @@ class Handler(BaseHTTPRequestHandler):
                 or "application/json" not in (self.headers.get("Content-Type") or "")):
             return self.reply(400, b"bad request", "text/plain")
         piggy = {"create": create_piggy, "update": update_piggy, "move": move_piggy, "delete": delete_piggy}
-        routes = {"/api/piggy": (piggy, ("goals",)), "/api/transaction": ({"categorize": categorize}, None)}
+        routes = {"/api/piggy": (piggy, ("goals",)), "/api/transaction": ({"categorize": categorize, "create": create_transaction}, None)}
         try:
             length = int(self.headers.get("Content-Length", 0))
             if not 0 < length <= 4000:

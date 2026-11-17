@@ -7,11 +7,13 @@ import { all, gotoBudget, gotoCategory, gotoTransactions, memo, setSel } from '.
 import { chatToggle } from './chat.js';
 import { matches } from './logic.js';
 import { togglePrivate } from './privacy.js';
+import { openAdd } from './add.js';
 
 let root = null, input, list, items = [], active = 0, seq = 0, timer = 0, opener = null;
 
 const go = hash => () => { location.hash = hash; };
 const actions = [
+  ['＋', 'Ajouter une dépense ou un revenu', () => openAdd()],
   ['⟳', 'Actualiser les chiffres', () => $('refresh').click()],
   ['🙈', 'Masquer ou afficher les montants', togglePrivate],
   ['💬', "Ouvrir l'assistant", () => chatToggle(true)],

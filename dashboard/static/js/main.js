@@ -12,6 +12,7 @@ import { renderRecurring } from './recurring.js';
 import { renderReview } from './review.js';
 import { all, hooks, memo, offline, page, sel, setAll, setMonth, setOffline, setPage, setRange, setSel } from './state.js';
 import { renderTransactions } from './transactions.js';
+import './add.js';
 import './privacy.js';
 import './search.js';
 

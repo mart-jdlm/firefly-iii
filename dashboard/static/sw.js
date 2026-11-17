@@ -1,8 +1,8 @@
 /* Cairn service worker: the app shell works offline, and the last figures are kept to be shown
    (with a banner) when the server cannot be reached. Set CACHE_API to false to keep no figures
    on the device. The assistant (/chat) and every write are never touched. */
-const SHELL = 'cairn-shell-v6', DATA = 'cairn-data-v1', CACHE_API = true;
-const MODULES = ['api', 'assets', 'budget', 'chat', 'consts', 'dom', 'edit', 'format', 'future', 'invest', 'logic', 'main', 'overview', 'privacy', 'recurring', 'review', 'search', 'state', 'transactions'];
+const SHELL = 'cairn-shell-v7', DATA = 'cairn-data-v1', CACHE_API = true;
+const MODULES = ['add', 'api', 'assets', 'budget', 'chat', 'consts', 'dom', 'edit', 'format', 'future', 'invest', 'logic', 'main', 'overview', 'privacy', 'recurring', 'review', 'search', 'state', 'transactions'];
 const PRECACHE = ['/', '/app.css', ...MODULES.map(m => `/js/${m}.js`), '/chart.js', '/logo.svg', '/favicon.svg', '/manifest.webmanifest', '/icon-192.png'];
 
 self.addEventListener('install', e => {

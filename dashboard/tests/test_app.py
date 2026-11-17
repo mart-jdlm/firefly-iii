@@ -604,6 +604,40 @@ class PeaKindTests(unittest.TestCase):
         self.assertEqual(got["fees"], [{"date": "2026-09-02", "amount": 1.2}])
 
 
+class CreateTransactionTests(unittest.TestCase):
+    TAX = {"categories": ["Courses"], "budgets": ["Vie courante"], "accounts": ["Compte de dépot"]}
+    GOOD = {"kind": "expense", "amount": "12,50", "description": " Boulangerie  ", "date": "2026-11-16", "account": "Compte de dépot",
+            "category": "Courses", "budget": "Vie courante"}
+
+    def create(self, **patch):
+        body = {**self.GOOD, **patch}
+        with mock.patch.object(app, "taxonomy", return_value=self.TAX), mock.patch.object(app, "api_write") as write, \
+             mock.patch.object(app, "dt", FAKE_DT):
+            app.create_transaction(body)
+        return write
+
+    def test_an_expense_is_posted_from_the_account_and_rules_still_run(self):
+        method, path, payload = self.create().call_args.args
+        self.assertEqual((method, path, payload["apply_rules"]), ("POST", "/transactions", True))
+        self.assertEqual(payload["transactions"], [{"type": "withdrawal", "date": "2026-11-16", "amount": "12.50", "description": "Boulangerie",
+            "source_name": "Compte de dépot", "destination_name": "Boulangerie", "category_name": "Courses", "budget_name": "Vie courante"}])
+
+    def test_an_income_goes_to_the_account_and_has_no_budget(self):
+        entry = self.create(kind="income", category="").call_args.args[2]["transactions"][0]
+        self.assertEqual((entry["type"], entry["source_name"], entry["destination_name"]), ("deposit", "Boulangerie", "Compte de dépot"))
+        self.assertNotIn("budget_name", entry); self.assertNotIn("category_name", entry)
+
+    def test_bad_input_is_refused_before_anything_is_written(self):
+        for patch, message in (({"kind": "transfer"}, "Type"), ({"amount": "0"}, "Montant"), ({"amount": "abc"}, "Montant"), ({"amount": "-5"}, "Montant"),
+                               ({"description": "  "}, "libellé"), ({"description": "x" * 121}, "libellé"), ({"date": "demain"}, "Date"),
+                               ({"date": "2026-11-18"}, "futur"), ({"account": "PEA Bourse"}, "Compte"), ({"category": "Valorisation"}, "Catégorie"),
+                               ({"budget": "Zzz"}, "Budget")):
+            with mock.patch.object(app, "api_write") as write, self.assertRaises(ValueError, msg=str(patch)) as ctx:
+                with mock.patch.object(app, "taxonomy", return_value=self.TAX), mock.patch.object(app, "dt", FAKE_DT):
+                    app.create_transaction({**self.GOOD, **patch})
+            self.assertIn(message, str(ctx.exception)); write.assert_not_called()
+
+
 class HttpTests(unittest.TestCase):
     """The real Handler on a local port, the data layer faked."""
 
