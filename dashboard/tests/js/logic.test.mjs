@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, matches, project, runway, sortBills, yoyRows } from '../../static/js/logic.js';
+import { billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, matches, periodRange, project, runway, sortBills, yoyRows } from '../../static/js/logic.js';
 
 const plain = s => s.replace(/[  ]/g, ' ');
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} is not ${b}`);
@@ -246,4 +246,19 @@ test('matches ignores case and accents and needs every word', () => {
   assert.ok(matches('sante', 'Santé'));
   assert.ok(matches('REST fast', 'Restaurants & Fast Food'));
   assert.ok(!matches('voiture jeux', 'Voiture'));
+});
+
+test('periodRange: presets end today and the month presets start on the first of a month', () => {
+  const today = new Date(2026, 10, 17);
+  assert.deepEqual(periodRange('30d', today), ['2026-10-19', '2026-11-17']);
+  assert.deepEqual(periodRange('3m', today), ['2026-09-01', '2026-11-17']);
+  assert.deepEqual(periodRange('6m', today), ['2026-06-01', '2026-11-17']);
+  assert.deepEqual(periodRange('12m', today), ['2025-12-01', '2026-11-17']);
+  assert.deepEqual(periodRange('ytd', today), ['2026-01-01', '2026-11-17']);
+  assert.equal(periodRange('month', today), null); assert.equal(periodRange('custom', today), null);
+});
+
+test('periodRange crosses year boundaries', () => {
+  assert.deepEqual(periodRange('3m', new Date(2026, 0, 5)), ['2025-11-01', '2026-01-05']);
+  assert.deepEqual(periodRange('30d', new Date(2026, 0, 5)), ['2025-12-07', '2026-01-05']);
 });

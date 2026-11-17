@@ -252,7 +252,18 @@ def search_transactions(text: str) -> list[dict]:
 def month_transactions(month: str) -> list[dict]:
     """Every transaction of a month touching an everyday account, newest first."""
     year, mon = map(int, month.split("-"))
-    start, end = month_bounds(year, mon)
+    return range_transactions(*month_bounds(year, mon))
+
+
+MAX_RANGE_DAYS = 1100
+
+
+def range_transactions(start: str, end: str) -> list[dict]:
+    """Every transaction from `start` to `end` (inclusive, YYYY-MM-DD) touching an everyday
+    account, newest first."""
+    first, last = dt.date.fromisoformat(start), dt.date.fromisoformat(end)
+    if last < first or (last - first).days > MAX_RANGE_DAYS:
+        raise ValueError("Période invalide")
     everyday = everyday_ids()
     query = (f"date_after:{dt.date.fromisoformat(start) - dt.timedelta(days=1)} "
              f"date_before:{dt.date.fromisoformat(end) + dt.timedelta(days=1)}")
@@ -807,6 +818,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.serve(name, content_type, "public, max-age=86400")
             if url.path == "/chart.js":
                 return self.serve("static/chart.umd.js", "application/javascript", "public, max-age=86400")
+            if url.path == "/api/transactions" and "start" in urllib.parse.parse_qs(url.query):
+                query = urllib.parse.parse_qs(url.query)
+                start, end = (dt.date.fromisoformat(query.get(k, [""])[0]).isoformat() for k in ("start", "end"))
+                return self.reply(200, json.dumps(cached(f"range{start}{end}", lambda: range_transactions(start, end))).encode(),
+                                  "application/json")
             if url.path in ("/api/transactions", "/api/budgets"):
                 month = urllib.parse.parse_qs(url.query).get("month", [""])[0]
                 dt.datetime.strptime(month, "%Y-%m")

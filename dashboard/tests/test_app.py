@@ -241,6 +241,21 @@ class FigureTests(unittest.TestCase):
         self.assertEqual([x["id"] for x in got], [6, 2, 1])
         self.assertEqual(got[0]["date"], "2026-10-31")
 
+    def test_range_transactions_covers_several_months_and_rejects_bad_spans(self):
+        def t(id, date):
+            return {"transaction_journal_id": id, "date": date + "T10:00:00+01:00", "type": "withdrawal", "description": "d", "amount": "1",
+                    "category_name": None, "budget_name": None, "source_id": "1", "source_name": "s", "destination_id": "9", "destination_name": "d",
+                    "notes": None, "bill_name": None}
+        body = {"data": [{"id": "g", "attributes": {"transactions": [t(1, "2026-08-31"), t(2, "2026-09-15"), t(3, "2026-11-17"), t(4, "2026-11-18")]}}],
+                "meta": {"pagination": {"total_pages": 1}}}
+        with mock.patch.object(app, "api", lambda path, params=None: body), \
+             mock.patch.object(app, "api_all", router({"/accounts": [account("1", "Compte", 0)]})):
+            got = app.range_transactions("2026-09-01", "2026-11-17")
+            for start, end in (("2026-11-17", "2026-09-01"), ("2020-01-01", "2026-11-17")):
+                with self.assertRaises(ValueError):
+                    app.range_transactions(start, end)
+        self.assertEqual([x["id"] for x in got], [3, 2])
+
     def test_expense_tree_groups_by_budget_then_category(self):
         def t(cat, budget, amount, src="1"):
             return {"date": "2026-10-10T00:00:00+01:00", "source_id": src, "category_name": cat, "budget_name": budget, "amount": amount}

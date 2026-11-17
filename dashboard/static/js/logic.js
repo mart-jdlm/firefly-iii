@@ -137,6 +137,24 @@ export function buildCsv(transactions) {
   return '﻿' + lines.join('\r\n');
 }
 
+export const PERIODS = [['month', 'Mois sélectionné'], ['30d', '30 derniers jours'], ['3m', '3 derniers mois'], ['6m', '6 derniers mois'],
+  ['ytd', "Depuis janvier"], ['12m', '12 derniers mois'], ['custom', 'Dates précises…']];
+
+/** [start, end] (YYYY-MM-DD) of a preset period ending today: the 3, 6 and 12 month ones start on
+ *  the first of the month, so the current month is counted. Null for 'month' and 'custom'. */
+export function periodRange(key, today) {
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const y = today.getFullYear(), m = today.getMonth(), end = iso(today);
+  switch (key) {
+    case '30d': return [iso(new Date(y, m, today.getDate() - 29)), end];
+    case '3m': return [iso(new Date(y, m - 2, 1)), end];
+    case '6m': return [iso(new Date(y, m - 5, 1)), end];
+    case '12m': return [iso(new Date(y, m - 11, 1)), end];
+    case 'ytd': return [`${y}-01-01`, end];
+    default: return null;
+  }
+}
+
 /** Accent- and case-insensitive match of every word of `query` in `text` (an empty query matches). */
 export function matches(query, text) {
   const norm = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();

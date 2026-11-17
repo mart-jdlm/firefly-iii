@@ -282,3 +282,7 @@ body.loading .kpi,body.loading .big{opacity:.45;transition:opacity .2s}
 body.priv canvas{filter:blur(9px);pointer-events:none}
 body.priv input[type=number]{filter:blur(6px)}
 body.priv #sankey .link{pointer-events:none}
+/* free period */
+.toolbar .dates{display:flex;gap:6px;align-items:center;color:var(--mute);font-size:13px}
+.toolbar .dates[hidden]{display:none}
+.toolbar .dates input{flex:none;min-width:0;width:150px}

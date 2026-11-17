@@ -6,7 +6,8 @@ export const charts = {};
 export const memo = { alerts: null, tax: null, tx: {}, bud: {}, flow: {}, bills: null, pea: null, goals: null };
 // txf.cat / txf.bud: '' = any, NONE = transactions without a category / budget
 export const NONE = '__none__';
-export const txf = { q: '', cat: '', bud: '', type: 'all' };
+// period: a key of PERIODS; from / to hold the dates of the custom one
+export const txf = { q: '', cat: '', bud: '', type: 'all', period: 'month', from: '', to: '' };
 // main.js registers the page renderer here, so pages can ask for a redraw without importing it
 export const hooks = { render: () => {}, reload: () => {} };
 
@@ -20,7 +21,7 @@ export const shown = () => all.months.slice(-range);
 export const isCurrent = i => i === all.months.length - 1;
 export function setMonth(i) { sel = Math.max(0, Math.min(all.months.length - 1, i)); hooks.render(); }
 export function gotoTransactions(filters) {
-  Object.assign(txf, { q: '', cat: '', bud: '', type: 'all' }, filters);
+  Object.assign(txf, { q: '', cat: '', bud: '', type: 'all', period: 'month' }, filters);
   if (location.hash === '#/transactions') hooks.render(); else location.hash = '#/transactions';
 }
 export const gotoCategory = cat => gotoTransactions({ cat: cat === '(sans catégorie)' ? NONE : cat });

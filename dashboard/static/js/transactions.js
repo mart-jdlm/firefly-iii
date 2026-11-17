@@ -4,16 +4,34 @@ import { $, bubble, el, fail, skel } from './dom.js';
 import { clean, dlabel, esc, eur, eur2, mlabel, sign } from './format.js';
 import { NONE, all, isCurrent, memo, page, sel, txf } from './state.js';
 import { editor } from './edit.js';
-import { buildCsv } from './logic.js';
+import { PERIODS, buildCsv, periodRange } from './logic.js';
+
+/* The span shown: the selected month, a preset or two chosen dates. {key, url, range} or null (custom dates not chosen yet). */
+function span(){
+ if(txf.period==='month'){const m=all.months[sel].month;return{key:m,url:'month='+m,range:null}}
+ const r=txf.period==='custom'?(txf.from&&txf.to&&txf.from<=txf.to?[txf.from,txf.to]:null):periodRange(txf.period,new Date());
+ return r&&{key:r.join('_'),url:`start=${r[0]}&end=${r[1]}`,range:r};
+}
+
+function syncPeriod(){
+ const fper=$('fper');
+ if(!fper.options.length)fper.replaceChildren(...PERIODS.map(([k,n])=>el('option',{value:k,textContent:n})));
+ fper.value=txf.period;
+ $('fdates').hidden=txf.period!=='custom';$('fFrom').value=txf.from;$('fTo').value=txf.to;
+ $('monthnav').hidden=txf.period!=='month';
+}
 
 export async function renderTransactions(){
  const month=all.months[sel].month;
  $('selLabel').textContent=mlabel(month,true)+(isCurrent(sel)?' · en cours':'');
  $('prev').disabled=sel===0;$('next').disabled=sel===all.months.length-1;
- let data=memo.tx[month];
+ syncPeriod();
+ const sp=span();
+ let data=sp?memo.tx[sp.key]:[];
  if(!data){$('txList').replaceChildren(...skel(5));
-  try{data=memo.tx[month]=await json('/api/transactions?month='+month)}catch(e){fail($('txList'),'Impossible de charger les transactions',renderTransactions);return}}
- if(month!==all.months[sel].month||page!=='transactions')return;
+  try{data=memo.tx[sp.key]=await json('/api/transactions?'+sp.url)}catch(e){fail($('txList'),'Impossible de charger les transactions',renderTransactions);return}}
+ txKey=sp?sp.key:'';
+ if(page!=='transactions'||(span()?.key||'')!==txKey)return;
  const kind=t=>t.type==='withdrawal'?'expense':t.type==='deposit'?'income':'transfer';
  const cats=[...new Set(data.map(t=>t.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
  const fcat=$('fcat');
@@ -30,7 +48,7 @@ export async function renderTransactions(){
  const list=data.filter(t=>(txf.type==='all'||kind(t)===txf.type)&&(!txf.cat||(txf.cat===NONE?!t.category:t.category===txf.cat))&&(!txf.bud||(txf.bud===NONE?!t.budget:t.budget===txf.bud))&&(!q||(t.description+' '+(t.category||'')+' '+(t.budget||'')).toLowerCase().includes(q)));
  txShown=list;
  const spent=list.filter(t=>kind(t)==='expense').reduce((a,t)=>a+t.amount,0),got=list.filter(t=>kind(t)==='income').reduce((a,t)=>a+t.amount,0);
- $('txSum').replaceChildren(el('span',{},[el('b',{textContent:list.length}),' opération'+(list.length>1?'s':'')]),el('span',{},['Dépenses ',el('b',{textContent:eur(spent)})]),el('span',{},['Revenus ',el('b',{textContent:eur(got)})]));
+ $('txSum').replaceChildren(...(sp&&sp.range?[el('span',{textContent:`Du ${dshort(sp.range[0])} au ${dshort(sp.range[1])}`})]:[]),el('span',{},[el('b',{textContent:list.length}),' opération'+(list.length>1?'s':'')]),el('span',{},['Dépenses ',el('b',{textContent:eur(spent)})]),el('span',{},['Revenus ',el('b',{textContent:eur(got)})]));
  if(!list.length){$('txList').replaceChildren(el('div',{className:'empty',textContent:'Aucune transaction ne correspond'}));return}
  const byDay={};list.forEach(t=>(byDay[t.date]=byDay[t.date]||[]).push(t));
  const out=[];
@@ -50,11 +68,11 @@ export async function renderTransactions(){
  $('txList').replaceChildren(...out);
 }
 
-let txShown=[];
+let txShown=[],txKey='';
 
 function exportCsv(){
  const url=URL.createObjectURL(new Blob([buildCsv(txShown)],{type:'text/csv;charset=utf-8'}));
- const a=el('a',{href:url,download:`cairn-transactions-${all.months[sel].month}.csv`});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ const a=el('a',{href:url,download:`cairn-transactions-${txKey}.csv`});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
 $('txCsv').onclick=exportCsv;
@@ -66,3 +84,15 @@ $('fcat').addEventListener('change',e=>{txf.cat=e.target.value;renderTransaction
 $('fbud').addEventListener('change',e=>{txf.bud=e.target.value;renderTransactions()});
 
 $('ftype').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;txf.type=b.dataset.t;renderTransactions()});
+
+const dshort=d=>new Intl.DateTimeFormat('fr-FR',{day:'numeric',month:'short',year:'numeric'}).format(new Date(d+'T12:00:00'));
+
+$('fper').addEventListener('change',e=>{
+ txf.period=e.target.value;
+ if(txf.period==='custom'&&!(txf.from&&txf.to)){const t=new Date(),iso=d=>d.toISOString().slice(0,10);txf.to=iso(new Date(t.getTime()-t.getTimezoneOffset()*6e4));txf.from=txf.to.slice(0,8)+'01'}
+ renderTransactions();
+});
+
+$('fFrom').addEventListener('change',e=>{txf.from=e.target.value;renderTransactions()});
+
+$('fTo').addEventListener('change',e=>{txf.to=e.target.value;renderTransactions()});
