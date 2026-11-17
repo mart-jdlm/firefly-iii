@@ -2,7 +2,8 @@
 import { json } from './api.js';
 import { $, bubble, el, fail, skel } from './dom.js';
 import { clean, dlabel, esc, eur, eur2, mlabel, sign } from './format.js';
-import { all, isCurrent, memo, page, sel, txf } from './state.js';
+import { NONE, all, isCurrent, memo, page, sel, txf } from './state.js';
+import { editor } from './edit.js';
 import { buildCsv } from './logic.js';
 
 export async function renderTransactions(){
@@ -16,12 +17,17 @@ export async function renderTransactions(){
  const kind=t=>t.type==='withdrawal'?'expense':t.type==='deposit'?'income':'transfer';
  const cats=[...new Set(data.map(t=>t.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
  const fcat=$('fcat');
- fcat.replaceChildren(el('option',{value:'',textContent:'Toutes les catégories'}),...cats.map(c=>el('option',{value:c,textContent:c})));
- if(txf.cat&&!cats.includes(txf.cat))fcat.append(el('option',{value:txf.cat,textContent:txf.cat}));
- fcat.value=txf.cat;$('q').value=txf.q;
+ const none=el('option',{value:NONE,textContent:'Sans catégorie'});
+ fcat.replaceChildren(el('option',{value:'',textContent:'Toutes les catégories'}),none,...cats.map(c=>el('option',{value:c,textContent:c})));
+ const buds=[...new Set(data.map(t=>t.budget).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'fr'));
+ const fbud=$('fbud');
+ fbud.replaceChildren(el('option',{value:'',textContent:'Tous les budgets'}),el('option',{value:NONE,textContent:'Sans budget'}),...buds.map(c=>el('option',{value:c,textContent:c})));
+ if(txf.cat&&txf.cat!==NONE&&!cats.includes(txf.cat))fcat.append(el('option',{value:txf.cat,textContent:txf.cat}));
+ if(txf.bud&&txf.bud!==NONE&&!buds.includes(txf.bud))fbud.append(el('option',{value:txf.bud,textContent:txf.bud}));
+ fcat.value=txf.cat;fbud.value=txf.bud;$('q').value=txf.q;
  document.querySelectorAll('#ftype button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t===txf.type));
  const q=txf.q.trim().toLowerCase();
- const list=data.filter(t=>(txf.type==='all'||kind(t)===txf.type)&&(!txf.cat||t.category===txf.cat)&&(!q||(t.description+' '+(t.category||'')+' '+(t.budget||'')).toLowerCase().includes(q)));
+ const list=data.filter(t=>(txf.type==='all'||kind(t)===txf.type)&&(!txf.cat||(txf.cat===NONE?!t.category:t.category===txf.cat))&&(!txf.bud||(txf.bud===NONE?!t.budget:t.budget===txf.bud))&&(!q||(t.description+' '+(t.category||'')+' '+(t.budget||'')).toLowerCase().includes(q)));
  txShown=list;
  const spent=list.filter(t=>kind(t)==='expense').reduce((a,t)=>a+t.amount,0),got=list.filter(t=>kind(t)==='income').reduce((a,t)=>a+t.amount,0);
  $('txSum').replaceChildren(el('span',{},[el('b',{textContent:list.length}),' opération'+(list.length>1?'s':'')]),el('span',{},['Dépenses ',el('b',{textContent:eur(spent)})]),el('span',{},['Revenus ',el('b',{textContent:eur(got)})]));
@@ -36,6 +42,7 @@ export async function renderTransactions(){
    const sub=[t.category,t.budget].filter(Boolean).join(' · ')||(k==='transfer'?'Virement entre comptes':'Sans catégorie');
    const det=el('div',{className:'det',hidden:true});
    det.innerHTML=`<b>Libellé</b> : ${esc(t.description)}<br><b>${esc(t.source)}</b> → <b>${esc(t.destination)}</b>`+(t.notes?`<br><b>Note</b> : ${esc(t.notes)}`:'');
+   if(k!=='transfer')det.append(editor(t));
    const row=el('div',{className:'tx'},[bubble(k==='transfer'?'virement':t.category),el('div',{className:'name'},[el('b',{textContent:clean(t.description)}),el('small',{textContent:sub})]),amt]);
    row.onclick=()=>det.hidden=!det.hidden;out.push(row,det);
   });
@@ -55,5 +62,7 @@ $('txCsv').onclick=exportCsv;
 $('q').addEventListener('input',e=>{txf.q=e.target.value;renderTransactions()});
 
 $('fcat').addEventListener('change',e=>{txf.cat=e.target.value;renderTransactions()});
+
+$('fbud').addEventListener('change',e=>{txf.bud=e.target.value;renderTransactions()});
 
 $('ftype').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;txf.type=b.dataset.t;renderTransactions()});

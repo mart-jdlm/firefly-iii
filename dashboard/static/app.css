@@ -251,3 +251,16 @@ body.loading .kpi,body.loading .big{opacity:.45;transition:opacity .2s}
 /* the last row of a page always clears the button (above the tab bar on a phone) */
 .content{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 @media(max-width:900px){.content{padding-bottom:calc(150px + env(safe-area-inset-bottom))}}
+/* transaction editor, toast, clickable charts */
+.edit{margin-top:10px}
+.edit-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:8px}
+.fld{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute)}
+.fld select,.chk2 input[type=text]{height:36px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;padding:0 10px;outline:none;min-width:150px}
+.fld select:focus,.chk2 input[type=text]:focus{border-color:var(--accent)}
+.chk2{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;color:var(--fg)}
+.chk2 input[type=text]{flex:1;min-width:140px}
+.err2{color:var(--down);font-size:12.5px}
+.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:50;background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:13.5px;box-shadow:0 6px 24px #0003;max-width:90vw}
+.toast.bad{background:var(--down);color:#fff}
+.bud.click{cursor:pointer}.bud.click:hover .row b{color:var(--accent)}
+#sankey .go{cursor:pointer}#sankey rect.go:hover{opacity:.75}#sankey text.go:hover{fill:var(--accent)}

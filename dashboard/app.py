@@ -238,7 +238,7 @@ def month_transactions(month: str) -> list[dict]:
                 if not mine:
                     continue
                 found.append({
-                    "id": t["transaction_journal_id"], "date": day, "type": kind,
+                    "id": t["transaction_journal_id"], "group": group["id"], "date": day, "type": kind,
                     "description": t["description"], "amount": money(t["amount"]),
                     "category": t["category_name"], "budget": t["budget_name"],
                     "source": t["source_name"], "destination": t["destination_name"],
@@ -529,6 +529,62 @@ def delete_piggy(body: dict) -> None:
     api_write("DELETE", f"/piggy-banks/{piggy['id']}")
 
 
+def taxonomy() -> dict:
+    """Names of the categories and budgets, for the pickers of the transaction editor."""
+    names = lambda path: sorted((r["attributes"]["name"] for r in api_all(path)), key=str.casefold)
+    return {"categories": [c for c in names("/categories") if c != "Valorisation"],
+            "budgets": names("/budgets")}
+
+
+RULE_GROUP = "Catégorisation automatique"
+
+
+def categorize(body: dict) -> None:
+    """Set the category (and budget) of one transaction, and optionally file the next ones the same
+    way with a Firefly III rule on a piece of the description. Valuation entries are never touched."""
+    group, journal = str(body.get("group", "")), int(body.get("id", 0))
+    category, budget = str(body.get("category") or "").strip(), str(body.get("budget") or "").strip()
+    known = taxonomy()
+    if category and category not in known["categories"]:
+        raise ValueError("Catégorie inconnue")
+    if budget and budget not in known["budgets"]:
+        raise ValueError("Budget inconnu")
+    current = next((t for t in api(f"/transactions/{group}")["data"]["attributes"]["transactions"]
+                    if int(t["transaction_journal_id"]) == journal), None)
+    if current is None:
+        raise ValueError("Transaction introuvable")
+    if current["category_name"] == "Valorisation":
+        raise ValueError("Les valorisations du PEA sont gérées automatiquement")
+    if current["type"] != "withdrawal":
+        budget = ""  # only spending has a budget
+    api_write("PUT", f"/transactions/{group}", {
+        "apply_rules": False, "fire_webhooks": False,
+        "transactions": [{"transaction_journal_id": str(journal),
+                          "category_name": category, "budget_name": budget}]})
+    text = str(body.get("rule") or "").strip()
+    if text:
+        if len(text) < 3 or not category:
+            raise ValueError("Pour une règle, il faut une catégorie et au moins 3 caractères")
+        add_rule(text, category, budget, current["type"])
+
+
+def add_rule(text: str, category: str, budget: str, kind: str) -> None:
+    title = f"{text} → {category}"
+    groups = {g["attributes"]["title"]: g["id"] for g in api_all("/rule-groups")}
+    if RULE_GROUP not in groups:
+        groups[RULE_GROUP] = api_write("POST", "/rule-groups", {"title": RULE_GROUP, "active": True})["data"]["id"]
+    action = lambda kind, value: {"type": kind, "value": value, "active": True, "stop_processing": False}
+    rule = {"title": title, "rule_group_id": groups[RULE_GROUP], "trigger": "store-journal",
+            "active": True, "strict": True,
+            "triggers": [{"type": "description_contains", "value": text, "active": True,
+                          "prohibited": False, "stop_processing": False},
+                         {"type": "transaction_type", "value": kind, "active": True,
+                          "prohibited": False, "stop_processing": False}],
+            "actions": [action("set_category", category)] + ([action("set_budget", budget)] if budget else [])}
+    existing = [r["id"] for r in api_all("/rules") if r["attributes"]["title"] == title]
+    api_write("PUT" if existing else "POST", f"/rules/{existing[0]}" if existing else "/rules", rule)
+
+
 class Cache:
     """TTL cache with one lock per key: concurrent loads of the same page share one set of API
     calls, but a slow key (Yahoo quotes, a 24-month build) never blocks the others. When Firefly III
@@ -676,6 +732,8 @@ class Handler(BaseHTTPRequestHandler):
                 make = month_transactions if url.path == "/api/transactions" else month_budgets
                 return self.reply(200, json.dumps(cached(f"{url.path}{month}", lambda: make(month))).encode(),
                                   "application/json")
+            if url.path == "/api/taxonomy":
+                return self.reply(200, json.dumps(cached("taxonomy", taxonomy)).encode(), "application/json")
             if url.path == "/api/bills":
                 return self.reply(200, json.dumps(cached("bills", bills_data)).encode(), "application/json")
             if url.path == "/api/goals":
@@ -710,8 +768,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
     def do_POST(self) -> None:
-        """Piggy bank changes only (Firefly III is the source of truth). A JSON body, a custom header
-        and a same-site Origin are required, so a page on another site cannot write."""
+        """Piggy bank changes and transaction categorisation (Firefly III is the source of truth).
+        A JSON body, a custom header and a same-site Origin are required, so a page on another
+        site cannot write."""
         host = host_name(self.headers.get("Host"))
         origin = self.headers.get("Origin") or ""
         origin_host = host_name(origin.split("//", 1)[-1]) if origin else host
@@ -720,20 +779,27 @@ class Handler(BaseHTTPRequestHandler):
         if (self.headers.get("X-Requested-With") != "dashboard"
                 or "application/json" not in (self.headers.get("Content-Type") or "")):
             return self.reply(400, b"bad request", "text/plain")
-        actions = {"create": create_piggy, "update": update_piggy, "move": move_piggy, "delete": delete_piggy}
+        piggy = {"create": create_piggy, "update": update_piggy, "move": move_piggy, "delete": delete_piggy}
+        routes = {"/api/piggy": (piggy, ("goals",)), "/api/transaction": ({"categorize": categorize}, None)}
         try:
             length = int(self.headers.get("Content-Length", 0))
             if not 0 < length <= 4000:
                 raise ValueError("Requête invalide")
             body = json.loads(self.rfile.read(length))
-            if urllib.parse.urlparse(self.path).path != "/api/piggy":
+            route = routes.get(urllib.parse.urlparse(self.path).path)
+            if route is None:
                 return self.reply(404, b"not found", "text/plain")
+            actions, stale = route
             action = actions.get(body.get("action"))
             if action is None:
                 raise ValueError("Action inconnue")
             with _lock:
                 action(body)
-                cache.drop("goals")
+                if stale is None:  # a transaction change shows in every total
+                    cache.expire_all()
+                else:
+                    for key in stale:
+                        cache.drop(key)
         except (ValueError, KeyError, TypeError) as e:
             return self.reply(400, json.dumps({"error": str(e)}).encode(), "application/json")
         except urllib.error.URLError as e:

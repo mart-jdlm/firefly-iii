@@ -34,6 +34,7 @@ function renderPage(){
 }
 
 hooks.render=renderPage;
+hooks.reload=()=>load(false,true);
 
 function stamp(){
  if(!all)return;

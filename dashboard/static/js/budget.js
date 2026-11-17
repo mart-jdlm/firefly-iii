@@ -3,7 +3,7 @@ import { json } from './api.js';
 import { CATS, GCOL } from './consts.js';
 import { $, css, el, fail, mk, pill } from './dom.js';
 import { avg, eur, mlabel, sign } from './format.js';
-import { all, charts, gotoCategory, isCurrent, memo, page, sel, setMonth, shown } from './state.js';
+import { all, charts, gotoBudget, gotoCategory, isCurrent, memo, page, sel, setMonth, shown } from './state.js';
 import { yoyRows } from './logic.js';
 
 function renderFlow(){
@@ -37,7 +37,9 @@ export function renderBudget(){
  const top=entries.slice(0,CATS.length-1),rest=entries.slice(CATS.length-1);
  const donut=[...top,...(rest.length?[['Autres catégories',rest.reduce((a,[,v])=>a+v,0)]]:[])];
  if(entries.length)mk('cDonut',{type:'doughnut',data:{labels:donut.map(d=>d[0]),datasets:[{data:donut.map(d=>d[1]),backgroundColor:donut.map((_,i)=>color(i)),borderColor:css('--card'),borderWidth:3,borderRadius:6}]},
-  options:{responsive:true,maintainAspectRatio:false,animation:false,cutout:'72%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label} : ${eur(c.parsed)}`}}}}});
+  options:{responsive:true,maintainAspectRatio:false,animation:false,cutout:'72%',onHover:(e,a)=>{e.native.target.style.cursor=a.length&&donut[a[0].index][0]!=='Autres catégories'?'pointer':''},
+   onClick:(e,a)=>{const d=a.length&&donut[a[0].index][0];if(d&&d!=='Autres catégories')gotoCategory(d)},
+   plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.label} : ${eur(c.parsed)}`}}}}});
  else if(charts.cDonut){charts.cDonut.destroy();delete charts.cDonut}
  const max=entries.length?entries[0][1]:1,rowsEl=[];
  entries.slice(0,8).forEach(([n,v],i)=>{
@@ -45,13 +47,13 @@ export function renderBudget(){
   const dot=el('span',{className:'dot'});dot.style.background=color(i);
   const row=el('div',{className:'item click',title:'Voir les transactions'},[dot,el('span',{className:'name',textContent:n}),
    el('span',{className:'vs'+(d===null?'':d>15?' down':d<-15?' up':''),textContent:d===null?'':(d>0?'+':'−')+Math.abs(Math.round(d))+' %'}),el('span',{className:'amt',textContent:eur(v)})]);
-  row.onclick=()=>gotoCategory(n==='(sans catégorie)'?'':n);rowsEl.push(row);
+  row.onclick=()=>gotoCategory(n);rowsEl.push(row);
   const bar=el('div',{className:'sub'},[el('span')]);bar.firstChild.style.cssText=`width:${v/max*100}%;background:${color(i)}`;rowsEl.push(bar);
  });
  $('spendRows').replaceChildren(...(rowsEl.length?rowsEl:[el('div',{className:'empty',textContent:'Aucune dépense ce mois-ci'})]));
  const inc=Object.entries(r.income).sort((a,b)=>b[1]-a[1]),imax=inc.length?inc[0][1]:1,ir=[];
  inc.forEach(([n,v])=>{const dot=el('span',{className:'dot'});dot.style.background=css('--up');
-  const row=el('div',{className:'item click'},[dot,el('span',{className:'name',textContent:n}),el('span',{className:'amt',textContent:eur(v)})]);row.onclick=()=>gotoCategory(n==='(sans catégorie)'?'':n);ir.push(row);
+  const row=el('div',{className:'item click'},[dot,el('span',{className:'name',textContent:n}),el('span',{className:'amt',textContent:eur(v)})]);row.onclick=()=>gotoCategory(n);ir.push(row);
   const bar=el('div',{className:'sub'},[el('span')]);bar.firstChild.style.cssText=`width:${v/imax*100}%;background:${css('--up')}`;ir.push(bar)});
  $('incomeRows').replaceChildren(...(ir.length?ir:[el('div',{className:'empty',textContent:'Aucun revenu ce mois-ci'})]));
 }
@@ -79,9 +81,10 @@ async function renderBudgets(month){
   const pct=b.limit?b.spent/b.limit*100:0,col=!b.limit?css('--c7'):pct>100?css('--down'):pct>80?css('--c5'):css('--up');
   const track=el('div',{className:'track'},[el('span')]);track.firstChild.style.cssText=`width:${Math.min(pct,100)}%;background:${col}`;
   const left=b.limit?b.limit-b.spent:null;
-  return el('div',{className:'bud'},[
+  const card=el('div',{className:'bud click',title:'Voir les transactions',tabIndex:0,onclick:()=>gotoBudget(b.name),onkeydown:e=>{if(e.key==='Enter')gotoBudget(b.name)}},[
    el('div',{className:'row'},[el('b',{textContent:b.name}),el('span',{textContent:b.limit?`${eur(b.spent)} sur ${eur(b.limit)}`:eur(b.spent)})]),
    ...(b.limit?[track,el('div',{className:'left'+(left<0?' down':''),textContent:left>=0?`Reste ${eur(left)} · ${Math.round(pct)} % utilisé`:`Dépassé de ${eur(-left)}`})]:[])]);
+  return card;
  }):[el('div',{className:'empty',textContent:'Aucun budget ce mois-ci'})]));
 }
 
@@ -118,10 +121,12 @@ async function renderSankey(r){
   const p=mk2('path',{class:'link',d:`M${x0},${l.y0} C${m},${l.y0} ${m},${l.y1} ${x1},${l.y1}`,stroke:css(l.b===mid[0]?l.a.color:l.b.color),'stroke-width':Math.max(l.h,1)});
   p.append(mk2('title',{},`${l.a.name} → ${l.b.name} : ${eur(l.v)}`));frag.push(p)});
  cols.forEach((c,ci)=>c.forEach(n=>{
-  const rect=mk2('rect',{x:n.x,y:n.y,width:NW,height:n.h,rx:3,fill:css(n.color)});rect.append(mk2('title',{},`${n.name} : ${eur(n.value)}`));frag.push(rect);
+  const go=ci===0&&n.name!=='Épargne utilisée'?()=>gotoCategory(n.name):ci===2&&n.name!=='Épargne'?()=>gotoBudget(n.name):ci===3?()=>gotoCategory(n.name):null;
+  const hit=e=>{if(go){e.classList.add('go');e.addEventListener('click',go)}return e};
+  const rect=hit(mk2('rect',{x:n.x,y:n.y,width:NW,height:n.h,rx:3,fill:css(n.color)}));rect.append(mk2('title',{},`${n.name} : ${eur(n.value)}`));frag.push(rect);
   if(ci===1){frag.push(mk2('text',{x:n.x+NW/2,y:n.y-8,'text-anchor':'middle',style:'font-weight:600'},'Revenus '+eur(n.value)));return}
   const lx=ci===0?n.x-8:n.x+NW+8,anchor=ci===0?'end':'start',big=n.h>=22;
-  const t=mk2('text',{x:lx,y:n.y+n.h/2+(big?-1:4),'text-anchor':anchor,style:ci===2?'font-weight:600':''},big?n.name:`${n.name} · ${eur(n.value)}`);
+  const t=hit(mk2('text',{x:lx,y:n.y+n.h/2+(big?-1:4),'text-anchor':anchor,style:ci===2?'font-weight:600':''},big?n.name:`${n.name} · ${eur(n.value)}`));
   frag.push(t);
   if(big)frag.push(mk2('text',{x:lx,y:n.y+n.h/2+14,'text-anchor':anchor,class:'m'},eur(n.value)));
  }));

@@ -3,10 +3,12 @@
    here and read as a live binding everywhere else. */
 export let range = 12, all = null, sel = 0, page = 'overview', offline = false;
 export const charts = {};
-export const memo = { tx: {}, bud: {}, flow: {}, bills: null, pea: null, goals: null };
-export const txf = { q: '', cat: '', type: 'all' };
+export const memo = { tax: null, tx: {}, bud: {}, flow: {}, bills: null, pea: null, goals: null };
+// txf.cat / txf.bud: '' = any, NONE = transactions without a category / budget
+export const NONE = '__none__';
+export const txf = { q: '', cat: '', bud: '', type: 'all' };
 // main.js registers the page renderer here, so pages can ask for a redraw without importing it
-export const hooks = { render: () => {} };
+export const hooks = { render: () => {}, reload: () => {} };
 
 export const setRange = v => { range = v; };
 export const setAll = v => { all = v; };
@@ -17,4 +19,9 @@ export const setOffline = v => { offline = v; };
 export const shown = () => all.months.slice(-range);
 export const isCurrent = i => i === all.months.length - 1;
 export function setMonth(i) { sel = Math.max(0, Math.min(all.months.length - 1, i)); hooks.render(); }
-export function gotoCategory(cat) { txf.cat = cat; txf.type = 'all'; txf.q = ''; location.hash = '#/transactions'; }
+export function gotoTransactions(filters) {
+  Object.assign(txf, { q: '', cat: '', bud: '', type: 'all' }, filters);
+  if (location.hash === '#/transactions') hooks.render(); else location.hash = '#/transactions';
+}
+export const gotoCategory = cat => gotoTransactions({ cat: cat === '(sans catégorie)' ? NONE : cat });
+export const gotoBudget = bud => gotoTransactions({ bud: bud === 'Sans budget' ? NONE : bud, type: 'expense' });

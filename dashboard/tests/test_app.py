@@ -101,8 +101,8 @@ class ApiLayerTests(unittest.TestCase):
         def tx(id):
             return {"transaction_journal_id": id, "date": "2026-10-05T00:00:00+01:00", "type": "withdrawal", "description": "d", "amount": "1",
                     "category_name": None, "budget_name": None, "source_id": "1", "source_name": "s", "destination_id": "9", "destination_name": "d", "notes": None}
-        pages = {1: {"data": [{"attributes": {"transactions": [tx(1)]}}], "meta": {"pagination": {"total_pages": 2}}},
-                 2: {"data": [{"attributes": {"transactions": [tx(2)]}}], "meta": {"pagination": {"total_pages": 2}}}}
+        pages = {1: {"data": [{"id": "g", "attributes": {"transactions": [tx(1)]}}], "meta": {"pagination": {"total_pages": 2}}},
+                 2: {"data": [{"id": "g", "attributes": {"transactions": [tx(2)]}}], "meta": {"pagination": {"total_pages": 2}}}}
         with mock.patch.object(app, "api", lambda path, params=None: pages[params["page"]]), \
              mock.patch.object(app, "api_all", router({"/accounts": [account("1", "Compte", 0)]})):
             self.assertEqual([t["id"] for t in app.month_transactions("2026-10")], [2, 1])
@@ -234,7 +234,7 @@ class FigureTests(unittest.TestCase):
                  t(4, "2026-10-08", "withdrawal", "1", "99", cat="Valorisation"),
                  t(5, "2026-09-30", "withdrawal", "1", "99"),                  # outside the month
                  t(6, "2026-10-31", "transfer", "99", "1")]
-        body = {"data": [{"attributes": {"transactions": found}}], "meta": {"pagination": {"total_pages": 1}}}
+        body = {"data": [{"id": "77", "attributes": {"transactions": found}}], "meta": {"pagination": {"total_pages": 1}}}
         with mock.patch.object(app, "api", lambda path, params=None: body), \
              mock.patch.object(app, "api_all", router({"/accounts": [account("1", "Compte", 0), account("5", "PEA Bourse", 0)]})):
             got = app.month_transactions("2026-10")
@@ -386,6 +386,53 @@ class PiggyValidation(unittest.TestCase):
         self.assertIn("Pas assez d'argent libre", str(ctx.exception))
 
 
+class CategorizeTests(unittest.TestCase):
+    TAX = {"categories": ["Courses", "Transport"], "budgets": ["Vie courante"]}
+
+    def run_categorize(self, body, current=None, rules=()):
+        current = {"transaction_journal_id": "7", "category_name": None, "type": "withdrawal", **(current or {})}
+        reads = {"/transactions/3": {"data": {"attributes": {"transactions": [current]}}}}
+        lists = {"/rules": [{"id": "5", "attributes": {"title": t}} for t in rules],
+                 "/rule-groups": [{"id": "1", "attributes": {"title": app.RULE_GROUP}}]}
+        with mock.patch.object(app, "taxonomy", return_value=self.TAX), \
+                mock.patch.object(app, "api", side_effect=lambda path, *a, **k: reads[path]), \
+                mock.patch.object(app, "api_all", side_effect=lambda path, *a, **k: lists[path]), \
+                mock.patch.object(app, "api_write") as write:
+            app.categorize({"id": 7, "group": 3, **body})
+        return write
+
+    def test_sets_category_and_budget_without_firing_rules(self):
+        write = self.run_categorize({"category": "Courses", "budget": "Vie courante"})
+        (method, path, payload), = [c.args for c in write.call_args_list]
+        self.assertEqual((method, path), ("PUT", "/transactions/3"))
+        self.assertEqual(payload["transactions"], [{"transaction_journal_id": "7", "category_name": "Courses", "budget_name": "Vie courante"}])
+        self.assertFalse(payload["apply_rules"])
+
+    def test_unknown_names_and_valuations_are_refused(self):
+        for patch, message in (({"category": "Inventée"}, "Catégorie"), ({"category": "Courses", "budget": "Zzz"}, "Budget")):
+            with self.assertRaises(ValueError) as ctx:
+                self.run_categorize(patch)
+            self.assertIn(message, str(ctx.exception))
+        with self.assertRaises(ValueError) as ctx:
+            self.run_categorize({"category": "Courses"}, {"category_name": "Valorisation"})
+        self.assertIn("PEA", str(ctx.exception))
+
+    def test_only_spending_has_a_budget(self):
+        write = self.run_categorize({"category": "Courses", "budget": "Vie courante"}, {"type": "deposit"})
+        self.assertEqual(write.call_args.args[2]["transactions"][0]["budget_name"], "")
+
+    def test_a_rule_is_created_or_replaced(self):
+        write = self.run_categorize({"category": "Courses", "budget": "Vie courante", "rule": "Carrefour"})
+        method, path, rule = write.call_args.args
+        self.assertEqual((method, path, rule["title"]), ("POST", "/rules", "Carrefour → Courses"))
+        self.assertEqual([a["type"] for a in rule["actions"]], ["set_category", "set_budget"])
+        self.assertEqual(rule["triggers"][0], {**rule["triggers"][0], "type": "description_contains", "value": "Carrefour"})
+        again = self.run_categorize({"category": "Courses", "rule": "Carrefour"}, rules=["Carrefour → Courses"])
+        self.assertEqual(again.call_args.args[:2], ("PUT", "/rules/5"))
+        with self.assertRaises(ValueError):
+            self.run_categorize({"category": "Courses", "rule": "ab"})
+
+
 class HttpTests(unittest.TestCase):
     """The real Handler on a local port, the data layer faked."""
 
@@ -521,6 +568,14 @@ class HttpTests(unittest.TestCase):
             with mock.patch.object(app, "move_piggy"):
                 self.assertEqual(self.post({"action": "move"})[0].status, 200)
             self.request("GET", "/api/goals"); self.assertEqual(goals.call_count, 2, "a successful write drops the goals cache")
+
+    def test_categorize_route_expires_every_cache(self):
+        with mock.patch.object(app, "categorize") as cat, mock.patch.object(app, "bills_data", mock.Mock(side_effect=lambda: {"n": time.time()})) as bills:
+            self.request("GET", "/api/bills")
+            self.assertEqual(self.post({"action": "categorize"}, path="/api/transaction")[0].status, 200)
+            cat.assert_called_once()
+            self.request("GET", "/api/bills"); self.assertEqual(bills.call_count, 2)
+        self.assertEqual(self.post({"action": "create"}, path="/api/transaction")[0].status, 400)
 
     def test_post_unexpected_error_is_a_500(self):
         with mock.patch.object(app, "delete_piggy", mock.Mock(side_effect=RuntimeError("boom"))), mock.patch("builtins.print"):
