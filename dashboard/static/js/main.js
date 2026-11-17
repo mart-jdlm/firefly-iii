@@ -9,6 +9,7 @@ import { renderFuture } from './future.js';
 import { renderInvest } from './invest.js';
 import { renderOverview } from './overview.js';
 import { renderRecurring } from './recurring.js';
+import { renderReview } from './review.js';
 import { all, hooks, memo, offline, page, sel, setAll, setMonth, setOffline, setPage, setRange, setSel } from './state.js';
 import { renderTransactions } from './transactions.js';
 import './privacy.js';
@@ -32,6 +33,7 @@ function renderPage(){
  else if(page==='transactions')renderTransactions();
  else if(page==='invest')renderInvest();
  else if(page==='future')renderFuture();
+ else if(page==='review')renderReview();
  else renderRecurring();
 }
 
@@ -49,7 +51,7 @@ async function load(refresh,keep){
  const was=keep&&all?all.months[sel].month:null;
  if(!keep)$('err').style.display='none';
  document.body.classList.add('loading');
- if(refresh||keep){memo.tx={};memo.bud={};memo.flow={};memo.bills=null;memo.alerts=null;memo.tax=null;memo.pea=null;memo.goals=null}
+ if(refresh||keep){memo.tx={};memo.bud={};memo.flow={};memo.bills=null;memo.reviews=null;memo.review={};memo.alerts=null;memo.tax=null;memo.pea=null;memo.goals=null}
  setOffline(false);
  try{
   setAll(await json(`/api/data?months=24${refresh?'&refresh=1':''}`));
@@ -69,7 +71,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&all&&Date
 
 addEventListener('online',()=>{if(all)load(false,true)});
 
-$('tabbar').replaceChildren(...[...document.querySelectorAll('#nav a')].map(a=>{const c=a.cloneNode(true);c.querySelector('span').textContent={overview:'Accueil',assets:'Patrimoine',budget:'Budget',transactions:'Opérations',invest:'Placements',future:'Avenir',recurring:'Récurrent'}[a.dataset.page];return c}));
+$('tabbar').replaceChildren(...[...document.querySelectorAll('#nav a')].map(a=>{const c=a.cloneNode(true);c.querySelector('span').textContent={overview:'Accueil',assets:'Patrimoine',budget:'Budget',transactions:'Opérations',invest:'Placements',future:'Avenir',recurring:'Récurrent',review:'Bilan'}[a.dataset.page];return c}));
 
 $('ranges').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!all)return;setRange(+b.dataset.m);
  document.querySelectorAll('#ranges button').forEach(x=>x.setAttribute('aria-pressed',x===b));renderPage()});

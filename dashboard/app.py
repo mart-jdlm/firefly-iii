@@ -26,6 +26,8 @@ FIREFLY_TOKEN = os.environ["FIREFLY_TOKEN"]
 PEA_POSITIONS = os.environ.get("PEA_POSITIONS", "/patrimoine/pea.txt")
 # Read-only here: goals of the assistant's goals file that follow an account's balance.
 GOALS_FILE = os.environ.get("GOALS_FILE", "/patrimoine/objectifs.json")
+# Read-only: the monthly reviews written by bilan/bilan.sh (YYYY-MM.facts.json, .comments.json, .html).
+BILANS_DIR = os.environ.get("BILANS_DIR", "/bilans")
 PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 ALLOWED = {h.strip() for h in os.environ.get("DASHBOARD_ALLOWED_HOSTS", "").split(",") if h.strip()}
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -649,6 +651,45 @@ def add_rule(text: str, category: str, budget: str, kind: str) -> None:
     api_write("PUT" if existing else "POST", f"/rules/{existing[0]}" if existing else "/rules", rule)
 
 
+def read_review_file(month: str, kind: str):
+    """A file of the monthly review, parsed when JSON; None when missing or unreadable."""
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        raise ValueError("Mois invalide")
+    try:
+        with open(os.path.join(BILANS_DIR, f"{month}.{kind}"), encoding="utf-8") as f:
+            return json.load(f) if kind.endswith("json") else f.read()
+    except (OSError, ValueError):
+        return None
+
+
+def reviews_list() -> list[dict]:
+    """The months that have a review, newest first, with their one-line summary."""
+    try:
+        names = os.listdir(BILANS_DIR)
+    except OSError:
+        return []
+    out = []
+    for month in sorted({n[:7] for n in names if re.fullmatch(r"\d{4}-\d{2}\.comments\.json", n)}, reverse=True):
+        comments, facts = read_review_file(month, "comments.json"), read_review_file(month, "facts.json")
+        if isinstance(comments, dict) and isinstance(facts, dict):
+            out.append({"month": month, "headline": str(comments.get("headline", "")),
+                        "saved": facts.get("saved")})
+    return out
+
+
+def review_data(month: str) -> dict:
+    """One review for the page: the figures worth showing (not every transaction) and the comments."""
+    facts, comments = read_review_file(month, "facts.json"), read_review_file(month, "comments.json")
+    if not isinstance(facts, dict) or not isinstance(comments, dict):
+        raise KeyError(month)
+    keep = ("month", "start", "end", "earned", "spent", "saved", "net_worth", "net_worth_change", "pea_market",
+            "net_worth_by_month", "groups", "categories", "uncategorised", "budgets", "upcoming_bills", "goals")
+    shown = {k: facts[k] for k in keep if k in facts}
+    shown["largest"] = [t for t in facts.get("largest", []) if t.get("type") == "withdrawal"][:6]
+    return {"facts": shown, "comments": comments,
+            "has_html": os.path.isfile(os.path.join(BILANS_DIR, f"{month}.html"))}
+
+
 UNUSUAL_RECENT_DAYS = 14
 UNUSUAL_MIN_AMOUNT = 50
 UNUSUAL_FACTOR = 3
@@ -862,6 +903,19 @@ class Handler(BaseHTTPRequestHandler):
                 make = month_transactions if url.path == "/api/transactions" else month_budgets
                 return self.reply(200, json.dumps(cached(f"{url.path}{month}", lambda: make(month))).encode(),
                                   "application/json")
+            if url.path == "/api/bilans":
+                return self.reply(200, json.dumps(cached("bilans", reviews_list)).encode(), "application/json")
+            if url.path in ("/api/bilan", "/api/bilan.html"):
+                month = urllib.parse.parse_qs(url.query).get("month", [""])[0]
+                try:
+                    if url.path == "/api/bilan":
+                        return self.reply(200, json.dumps(cached(f"bilan{month}", lambda: review_data(month))).encode(), "application/json")
+                    page = read_review_file(month, "html")
+                    if page is None:
+                        raise KeyError(month)
+                    return self.reply(200, page.encode(), "text/html; charset=utf-8")
+                except KeyError:
+                    return self.reply(404, json.dumps({"error": "Pas de bilan pour ce mois"}).encode(), "application/json")
             if url.path == "/api/search":
                 text = urllib.parse.parse_qs(url.query).get("q", [""])[0]
                 return self.reply(200, json.dumps(cached(f"search{text.casefold()}", lambda: search_transactions(text))).encode(),

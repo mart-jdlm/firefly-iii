@@ -286,3 +286,9 @@ body.priv #sankey .link{pointer-events:none}
 .toolbar .dates{display:flex;gap:6px;align-items:center;color:var(--mute);font-size:13px}
 .toolbar .dates[hidden]{display:none}
 .toolbar .dates input{flex:none;min-width:0;width:150px}
+/* monthly review */
+.rv-title{margin:14px 0 0;font-size:20px;font-weight:680;letter-spacing:-.01em;line-height:1.35}
+.advice{padding:12px 0;border-top:1px solid var(--line)}.advice:first-of-type{border-top:0;padding-top:0}
+.advice p{margin:4px 0 0;color:var(--mute);line-height:1.5;font-size:14px}
+#rvHead .toolbar{justify-content:space-between}
+#rvHead .btn{text-decoration:none;display:inline-block}

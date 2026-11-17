@@ -211,6 +211,7 @@ services:
       - "127.0.0.1:8787:8787"
     volumes:
       - ./patrimoine:/patrimoine:ro
+      - ./bilans:/bilans:ro
 
 volumes:
   importer_logs:

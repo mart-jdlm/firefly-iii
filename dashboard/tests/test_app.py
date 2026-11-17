@@ -545,6 +545,46 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(call.call_args.args[1], "2026-09-28")
 
 
+class ReviewTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        patcher = mock.patch.object(app, "BILANS_DIR", self.dir.name)
+        patcher.start(); self.addCleanup(patcher.stop); self.addCleanup(self.dir.cleanup)
+
+    def write(self, name, content):
+        with open(os.path.join(self.dir.name, name), "w", encoding="utf-8") as f:
+            f.write(content if isinstance(content, str) else json.dumps(content))
+
+    def review(self, month, headline="Bon mois", **facts):
+        self.write(f"{month}.facts.json", {"month": month, "earned": 100, "saved": 40, "transactions": [{"id": "secret"}],
+                                           "largest": [{"type": "deposit"}, {"type": "withdrawal", "id": "1"}], **facts})
+        self.write(f"{month}.comments.json", {"headline": headline, "highlights": []})
+
+    def test_lists_months_newest_first_and_ignores_incomplete_or_broken_ones(self):
+        self.review("2026-09", "Septembre"); self.review("2026-10", "Octobre")
+        self.write("2026-08.comments.json", {"headline": "sans chiffres"})   # no facts file
+        self.write("2026-07.comments.json", "not json"); self.write("2026-07.facts.json", "{}")
+        self.assertEqual([r["month"] for r in app.reviews_list()], ["2026-10", "2026-09"])
+        self.assertEqual(app.reviews_list()[0]["headline"], "Octobre")
+
+    def test_no_folder_means_no_reviews(self):
+        with mock.patch.object(app, "BILANS_DIR", os.path.join(self.dir.name, "absent")):
+            self.assertEqual(app.reviews_list(), [])
+
+    def test_a_review_keeps_the_figures_but_not_every_transaction(self):
+        self.review("2026-10"); self.write("2026-10.html", "<p>x</p>")
+        got = app.review_data("2026-10")
+        self.assertNotIn("transactions", got["facts"]); self.assertEqual(got["facts"]["earned"], 100)
+        self.assertEqual(got["facts"]["largest"], [{"type": "withdrawal", "id": "1"}]); self.assertTrue(got["has_html"])
+        with self.assertRaises(KeyError):
+            app.review_data("2026-01")
+
+    def test_the_month_cannot_climb_out_of_the_folder(self):
+        for bad in ("../etc/passwd", "2026-13", "2026-1", "2026-10/../x"):
+            with self.assertRaises(ValueError, msg=bad):
+                app.read_review_file(bad, "html")
+
+
 class HttpTests(unittest.TestCase):
     """The real Handler on a local port, the data layer faked."""
 
