@@ -628,7 +628,29 @@ def taxonomy() -> dict:
 RULE_GROUP = "Catégorisation automatique"
 
 
-def categorize(body: dict) -> None:
+PAST_DAYS = 365
+PAST_LIMIT = 200
+
+
+def past_matches(text: str, kind: str) -> list[dict]:
+    """Transactions of the last year without a category whose description contains `text`
+    (kind: withdrawal or deposit), on everyday accounts, newest first. At most PAST_LIMIT."""
+    text = " ".join(text.split()).replace('"', "")
+    if len(text) < 3 or kind not in ("withdrawal", "deposit"):
+        return []
+    since = dt.date.today() - dt.timedelta(days=PAST_DAYS)
+    query = f'description_contains:"{text}" has_no_category:true type:{kind} date_after:{since}'
+    everyday = everyday_ids()
+    found = []
+    for group in api("/search/transactions", {"query": query, "limit": PAST_LIMIT})["data"]:
+        for t in group["attributes"]["transactions"]:
+            row = everyday_row(t, group["id"], everyday)
+            if row and not t["category_name"]:
+                found.append(row)
+    return sorted(found, key=lambda t: (t["date"], t["id"]), reverse=True)[:PAST_LIMIT]
+
+
+def categorize(body: dict) -> dict:
     """Set the category (and budget) of one transaction, and optionally file the next ones the same
     way with a Firefly III rule on a piece of the description. Valuation entries are never touched."""
     group, journal = str(body.get("group", "")), int(body.get("id", 0))
@@ -650,11 +672,21 @@ def categorize(body: dict) -> None:
         "apply_rules": False, "fire_webhooks": False,
         "transactions": [{"transaction_journal_id": str(journal),
                           "category_name": category, "budget_name": budget}]})
-    text = str(body.get("rule") or "").strip()
+    text, applied = str(body.get("rule") or "").strip(), 0
     if text:
         if len(text) < 3 or not category:
             raise ValueError("Pour une règle, il faut une catégorie et au moins 3 caractères")
         add_rule(text, category, budget, current["type"])
+        if body.get("past"):
+            for row in past_matches(text, current["type"]):
+                if str(row["id"]) == str(journal):
+                    continue
+                api_write("PUT", f"/transactions/{row['group']}", {
+                    "apply_rules": False, "fire_webhooks": False,
+                    "transactions": [{"transaction_journal_id": str(row["id"]), "category_name": category,
+                                      **({"budget_name": budget} if budget else {})}]})
+                applied += 1
+    return {"applied": applied}
 
 
 def create_transaction(body: dict) -> None:
@@ -969,6 +1001,11 @@ class Handler(BaseHTTPRequestHandler):
                 make = month_transactions if url.path == "/api/transactions" else month_budgets
                 return self.reply(200, json.dumps(cached(f"{url.path}{month}", lambda: make(month))).encode(),
                                   "application/json")
+            if url.path == "/api/rule-preview":
+                query = urllib.parse.parse_qs(url.query)
+                rows = past_matches(query.get("text", [""])[0], query.get("type", [""])[0])
+                return self.reply(200, json.dumps({"count": len(rows), "amount": money(sum(r["amount"] for r in rows)),
+                                                   "capped": len(rows) >= PAST_LIMIT}).encode(), "application/json")
             if url.path == "/api/bilans":
                 return self.reply(200, json.dumps(cached("bilans", reviews_list)).encode(), "application/json")
             if url.path in ("/api/bilan", "/api/bilan.html"):
@@ -1050,7 +1087,7 @@ class Handler(BaseHTTPRequestHandler):
             if action is None:
                 raise ValueError("Action inconnue")
             with _lock:
-                action(body)
+                result = action(body)
                 if stale is None:  # a transaction change shows in every total
                     cache.expire_all()
                 else:
@@ -1063,7 +1100,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f"POST {self.path}: {type(e).__name__}: {e}", flush=True)
             return self.reply(500, json.dumps({"error": "Erreur interne"}).encode(), "application/json")
-        self.reply(200, b"{}", "application/json")
+        self.reply(200, json.dumps(result if isinstance(result, dict) else {}).encode(), "application/json")
 
     def serve(self, name: str, content_type: str, cache: str | None = None) -> None:
         """Static file with an ETag: app code revalidates (304 when unchanged), icons and Chart.js

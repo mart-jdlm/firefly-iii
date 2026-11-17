@@ -405,6 +405,33 @@ class PiggyValidation(unittest.TestCase):
 class CategorizeTests(unittest.TestCase):
     TAX = {"categories": ["Courses", "Transport"], "budgets": ["Vie courante"]}
 
+    def test_past_transactions_without_a_category_get_filed_too(self):
+        def hit(i, cat=None):
+            return {"transaction_journal_id": i, "date": "2026-10-05T10:00:00+01:00", "type": "withdrawal", "description": f"Carrefour {i}", "amount": "10",
+                    "category_name": cat, "budget_name": None, "source_id": "1", "source_name": "s", "destination_id": "99", "destination_name": "d",
+                    "notes": None, "bill_name": None}
+        body = {"data": [{"id": f"g{i}", "attributes": {"transactions": [hit(i)]}} for i in (7, 8, 9)]}
+        lists = {"/accounts": [account("1", "Compte", 0)]}
+        with mock.patch.object(app, "api", mock.Mock(return_value=body)) as api, \
+             mock.patch.object(app, "api_all", router(lists)), mock.patch.object(app, "dt", FAKE_DT):
+            rows = app.past_matches("  Carrefour ", "withdrawal")
+            self.assertEqual([r["id"] for r in rows], [9, 8, 7])
+            self.assertIn('description_contains:"Carrefour" has_no_category:true type:withdrawal date_after:2025-11-17', api.call_args.args[1]["query"])
+            self.assertEqual(app.past_matches("ab", "withdrawal"), []); self.assertEqual(app.past_matches("Carrefour", "transfer"), [])
+
+    def test_applying_a_rule_to_the_past_skips_the_edited_transaction(self):
+        rows = [{"id": 7, "group": "g7"}, {"id": 8, "group": "g8"}]
+        with mock.patch.object(app, "past_matches", return_value=rows):
+            write = self.run_categorize({"category": "Courses", "budget": "Vie courante", "rule": "Carrefour", "past": True})
+        puts = [c.args for c in write.call_args_list if c.args[0] == "PUT" and c.args[1].startswith("/transactions/")]
+        self.assertEqual([p[1] for p in puts], ["/transactions/3", "/transactions/g8"])
+        self.assertEqual(puts[1][2]["transactions"][0], {"transaction_journal_id": "8", "category_name": "Courses", "budget_name": "Vie courante"})
+
+    def test_without_the_flag_the_past_is_left_alone(self):
+        with mock.patch.object(app, "past_matches") as past:
+            self.run_categorize({"category": "Courses", "rule": "Carrefour"})
+        past.assert_not_called()
+
     def run_categorize(self, body, current=None, rules=()):
         current = {"transaction_journal_id": "7", "category_name": None, "type": "withdrawal", **(current or {})}
         reads = {"/transactions/3": {"data": {"attributes": {"transactions": [current]}}}}
