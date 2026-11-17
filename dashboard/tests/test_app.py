@@ -3,6 +3,7 @@
 Firefly III is never contacted: `api`, `api_all` and `api_write` are replaced by fakes, and the HTTP
 tests run the real Handler on a local port.
 """
+import contextlib
 import datetime
 import gzip
 import http.client
@@ -23,6 +24,7 @@ os.environ.setdefault("FIREFLY_TOKEN", "test-token")
 os.environ["DASHBOARD_ALLOWED_HOSTS"] = "cairn.test"
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import app  # noqa: E402
+import figures, firefly, goals, invest, reviews, transactions, ttlcache  # noqa: E402
 
 TODAY = datetime.date(2026, 11, 17)
 
@@ -34,6 +36,16 @@ class FakeDate(datetime.date):
 
 
 FAKE_DT = types.SimpleNamespace(date=FakeDate, datetime=datetime.datetime, timedelta=datetime.timedelta)
+
+
+@contextlib.contextmanager
+def fake_dt():
+    """Every module reads the date through its own `dt`: today is TODAY in all of them."""
+    with contextlib.ExitStack() as stack:
+        for module in (app, figures, firefly, goals, invest, reviews, transactions, ttlcache):
+            if hasattr(module, "dt"):
+                stack.enter_context(mock.patch.object(module, "dt", FAKE_DT))
+        yield
 
 
 def router(routes):
@@ -56,47 +68,47 @@ class Helpers(unittest.TestCase):
             self.assertEqual(app.host_name(raw), want, raw)
 
     def test_month_bounds(self):
-        self.assertEqual(app.month_bounds(2026, 2), ("2026-02-01", "2026-02-28"))
-        self.assertEqual(app.month_bounds(2028, 2), ("2028-02-01", "2028-02-29"))
-        self.assertEqual(app.month_bounds(2026, 12), ("2026-12-01", "2026-12-31"))
+        self.assertEqual(firefly.month_bounds(2026, 2), ("2026-02-01", "2026-02-28"))
+        self.assertEqual(firefly.month_bounds(2028, 2), ("2028-02-01", "2028-02-29"))
+        self.assertEqual(firefly.month_bounds(2026, 12), ("2026-12-01", "2026-12-31"))
 
     def test_months_back_crosses_the_year_and_ends_now(self):
-        with mock.patch.object(app, "dt", FAKE_DT):
-            result = app.months_back(14)
+        with fake_dt():
+            result = firefly.months_back(14)
         self.assertEqual(len(result), 14)
         self.assertEqual(result[-1], (2026, 11))
         self.assertEqual(result[0], (2025, 10))
         self.assertEqual(result[2], (2025, 12)); self.assertEqual(result[3], (2026, 1))
 
     def test_money_and_clean_date(self):
-        self.assertEqual(app.money("12.5"), 12.5)
-        self.assertEqual(app.money("3.14159"), 3.14)
-        self.assertEqual(app.money(None), 0)
-        self.assertIsNone(app.clean_date(""))
-        self.assertEqual(app.clean_date("2027-01-31"), "2027-01-31")
+        self.assertEqual(firefly.money("12.5"), 12.5)
+        self.assertEqual(firefly.money("3.14159"), 3.14)
+        self.assertEqual(firefly.money(None), 0)
+        self.assertIsNone(goals.clean_date(""))
+        self.assertEqual(goals.clean_date("2027-01-31"), "2027-01-31")
         with self.assertRaises(ValueError):
-            app.clean_date("31/01/2027")
+            goals.clean_date("31/01/2027")
 
     def test_read_positions(self):
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
             f.write("# symbol quantity label\nCW8.PA 2 ETF Monde\n\nespeces 3.2\nbad line\nXYZ notanumber\n")
         try:
-            with mock.patch.object(app, "PEA_POSITIONS", f.name):
-                self.assertEqual(app.read_positions(), [
+            with mock.patch.object(invest, "PEA_POSITIONS", f.name):
+                self.assertEqual(invest.read_positions(), [
                     {"symbol": "CW8.PA", "quantity": 2.0, "label": "ETF Monde"},
                     {"symbol": "especes", "quantity": 3.2, "label": ""}])
         finally:
             os.unlink(f.name)
-        with mock.patch.object(app, "PEA_POSITIONS", "/nonexistent/pea.txt"):
-            self.assertIsNone(app.read_positions())
+        with mock.patch.object(invest, "PEA_POSITIONS", "/nonexistent/pea.txt"):
+            self.assertIsNone(invest.read_positions())
 
 
 class ApiLayerTests(unittest.TestCase):
     def test_api_all_follows_every_page(self):
         pages = {1: {"data": [1, 2], "meta": {"pagination": {"total_pages": 3}}}, 2: {"data": [3], "meta": {"pagination": {"total_pages": 3}}},
                  3: {"data": [4], "meta": {"pagination": {"total_pages": 3}}}}
-        with mock.patch.object(app, "api", lambda path, params=None: pages[params["page"]]):
-            self.assertEqual(app.api_all("/things"), [1, 2, 3, 4])
+        with mock.patch.object(firefly, "api", lambda path, params=None: pages[params["page"]]):
+            self.assertEqual(firefly.api_all("/things"), [1, 2, 3, 4])
 
     def test_searches_read_every_page(self):
         def tx(id):
@@ -104,26 +116,26 @@ class ApiLayerTests(unittest.TestCase):
                     "category_name": None, "budget_name": None, "source_id": "1", "source_name": "s", "destination_id": "9", "destination_name": "d", "notes": None, "bill_name": None}
         pages = {1: {"data": [{"id": "g", "attributes": {"transactions": [tx(1)]}}], "meta": {"pagination": {"total_pages": 2}}},
                  2: {"data": [{"id": "g", "attributes": {"transactions": [tx(2)]}}], "meta": {"pagination": {"total_pages": 2}}}}
-        with mock.patch.object(app, "api", lambda path, params=None: pages[params["page"]]), \
-             mock.patch.object(app, "api_all", router({"/accounts": [account("1", "Compte", 0)]})):
-            self.assertEqual([t["id"] for t in app.month_transactions("2026-10")], [2, 1])
-            self.assertEqual(app.expense_tree("2026-10"), {"Sans budget": {app.UNCATEGORISED: 2.0}})
+        with mock.patch.object(firefly, "api", lambda path, params=None: pages[params["page"]]), \
+             mock.patch.object(firefly, "api_all", router({"/accounts": [account("1", "Compte", 0)]})):
+            self.assertEqual([t["id"] for t in transactions.month_transactions("2026-10")], [2, 1])
+            self.assertEqual(figures.expense_tree("2026-10"), {"Sans budget": {firefly.UNCATEGORISED: 2.0}})
 
     def fail_with(self, code, payload):
         error = urllib.error.HTTPError("http://x", code, "err", {}, None)
         error.read = lambda: payload
-        return mock.patch.object(app.urllib.request, "urlopen", mock.Mock(side_effect=error))
+        return mock.patch.object(urllib.request, "urlopen", mock.Mock(side_effect=error))
 
     def test_api_write_turns_firefly_validation_errors_into_messages(self):
         body = json.dumps({"message": "The given data was invalid.", "errors": {"name": ["Name is taken."], "amount": ["Too big.", "Too odd."]}}).encode()
         with self.fail_with(422, body), self.assertRaises(ValueError) as ctx:
-            app.api_write("POST", "/piggy-banks", {})
+            firefly.api_write("POST", "/piggy-banks", {})
         self.assertEqual(str(ctx.exception), "Name is taken. Too big. Too odd.")
         with self.fail_with(400, json.dumps({"message": "Nope"}).encode()), self.assertRaises(ValueError) as ctx:
-            app.api_write("PUT", "/piggy-banks/1", {})
+            firefly.api_write("PUT", "/piggy-banks/1", {})
         self.assertEqual(str(ctx.exception), "Nope")
         with self.fail_with(500, b"<html>oops</html>"), self.assertRaises(ValueError) as ctx:
-            app.api_write("DELETE", "/piggy-banks/1")
+            firefly.api_write("DELETE", "/piggy-banks/1")
         self.assertEqual(str(ctx.exception), "Firefly III answered 500")
 
     def test_api_write_returns_the_json_answer_or_none(self):
@@ -132,15 +144,15 @@ class ApiLayerTests(unittest.TestCase):
             def read(self): return self.data
             def __enter__(self): return self
             def __exit__(self, *a): return False
-        with mock.patch.object(app.urllib.request, "urlopen", return_value=Reply(b'{"a": 1}')):
-            self.assertEqual(app.api_write("POST", "/x", {}), {"a": 1})
-        with mock.patch.object(app.urllib.request, "urlopen", return_value=Reply(b"")):
-            self.assertIsNone(app.api_write("DELETE", "/x"))
+        with mock.patch.object(urllib.request, "urlopen", return_value=Reply(b'{"a": 1}')):
+            self.assertEqual(firefly.api_write("POST", "/x", {}), {"a": 1})
+        with mock.patch.object(urllib.request, "urlopen", return_value=Reply(b"")):
+            self.assertIsNone(firefly.api_write("DELETE", "/x"))
 
 
 class CacheTests(unittest.TestCase):
     def test_hit_within_ttl_then_remake(self):
-        cache, calls = app.Cache(60), []
+        cache, calls = ttlcache.Cache(60), []
         make = lambda: calls.append(1) or len(calls)
         self.assertEqual(cache.get("k", make), 1)
         self.assertEqual(cache.get("k", make), 1)
@@ -148,7 +160,7 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(cache.get("k", make), 2)
 
     def test_concurrent_loads_share_one_call(self):
-        cache, calls, release = app.Cache(60), [], threading.Event()
+        cache, calls, release = ttlcache.Cache(60), [], threading.Event()
 
         def slow():
             calls.append(1); release.wait(2); return "v"
@@ -161,7 +173,7 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
     def test_a_slow_key_does_not_block_another_key(self):
-        cache, release = app.Cache(60), threading.Event()
+        cache, release = ttlcache.Cache(60), threading.Event()
         threading.Thread(target=lambda: cache.get("slow", lambda: release.wait(3)), daemon=True).start()
         time.sleep(0.1)
         start = time.time()
@@ -170,19 +182,19 @@ class CacheTests(unittest.TestCase):
         release.set()
 
     def test_stale_value_is_served_when_the_refresh_fails(self):
-        cache = app.Cache(0)
+        cache = ttlcache.Cache(0)
         cache.get("k", lambda: "old")
         def boom(): raise urllib.error.URLError("down")
         self.assertEqual(cache.get("k", boom), "old")
 
     def test_failure_without_a_stale_value_propagates_and_is_not_cached(self):
-        cache = app.Cache(60)
+        cache = ttlcache.Cache(60)
         with self.assertRaises(ValueError):
             cache.get("k", lambda: (_ for _ in ()).throw(ValueError("x")))
         self.assertEqual(cache.get("k", lambda: "now"), "now")
 
     def test_expire_all_keeps_a_fallback_and_drop_removes(self):
-        cache, calls = app.Cache(60), []
+        cache, calls = ttlcache.Cache(60), []
         cache.get("a", lambda: calls.append(1) or "one")
         cache.expire_all()
         self.assertEqual(cache.get("a", lambda: "two"), "two")        # stale: rebuilt
@@ -200,8 +212,8 @@ class FigureTests(unittest.TestCase):
                   account("3", "PEA Bourse", 500.5, "defaultAsset"), account("4", "Dette papa", -300, "defaultAsset"),
                   account("5", "Fermé", 999, active=False), account("6", "Hors total", 999, include=False)]
         debts = [account("7", "Prêt", -50, kind="liabilities")]
-        with mock.patch.object(app, "api_all", lambda path, params=None: debts if params["type"] == "liabilities" else assets):
-            nw = app.net_worth_at("2026-10-31")
+        with mock.patch.object(firefly, "api_all", lambda path, params=None: debts if params["type"] == "liabilities" else assets):
+            nw = figures.net_worth_at("2026-10-31")
         self.assertEqual((nw["courant"], nw["epargne"], nw["investissements"], nw["dettes"]), (100, 4000, 500.5, -350))
         self.assertEqual(nw["total"], 4250.5)
         self.assertEqual(sorted(a["name"] for a in nw["accounts"]), ["Compte courant", "Dette papa", "Livret A", "PEA Bourse", "Prêt"])
@@ -209,9 +221,9 @@ class FigureTests(unittest.TestCase):
     def test_by_category_uses_positive_amounts_and_the_uncategorised_rest(self):
         rows = {"expense/category": [{"name": "Courses", "difference": "-120.5"}, {"name": "Zero", "difference": "0"}],
                 "expense/no-category": [{"difference": "-30"}]}
-        with mock.patch.object(app, "insight", lambda path, start, end, ids: rows[path]):
-            got = app.by_category("expense", "2026-10-01", "2026-10-31", ["1"])
-        self.assertEqual(got, {"Courses": 120.5, app.UNCATEGORISED: 30.0})
+        with mock.patch.object(figures, "insight", lambda path, start, end, ids: rows[path]):
+            got = figures.by_category("expense", "2026-10-01", "2026-10-31", ["1"])
+        self.assertEqual(got, {"Courses": 120.5, firefly.UNCATEGORISED: 30.0})
 
     def test_bills_data(self):
         bills = [{"attributes": {"name": "Claude", "active": True, "amount_min": "20", "amount_max": "25", "repeat_freq": "monthly",
@@ -219,8 +231,8 @@ class FigureTests(unittest.TestCase):
                  {"attributes": {"name": "Old", "active": False, "amount_min": "1", "amount_max": "1", "repeat_freq": "monthly", "pay_dates": []}}]
         piggies = [{"attributes": {"name": "Voyage", "active": True, "current_amount": "10", "target_amount": "100", "target_date": "2027-01-31T00:00:00+01:00"}},
                    {"attributes": {"name": "Off", "active": False, "current_amount": "0", "target_amount": "1", "target_date": None}}]
-        with mock.patch.object(app, "dt", FAKE_DT), mock.patch.object(app, "api_all", router({"/bills": bills, "/piggy-banks": piggies})):
-            got = app.bills_data()
+        with fake_dt(), mock.patch.object(firefly, "api_all", router({"/bills": bills, "/piggy-banks": piggies})):
+            got = figures.bills_data()
         self.assertEqual([b["name"] for b in got["bills"]], ["Claude"])
         self.assertEqual(got["bills"][0]["amount"], 22.5)
         self.assertEqual([(u["date"], u["amount"]) for u in got["upcoming"]], [("2026-11-21", 22.5), ("2026-12-21", 22.5)])
@@ -236,9 +248,9 @@ class FigureTests(unittest.TestCase):
                  t(5, "2026-09-30", "withdrawal", "1", "99"),                  # outside the month
                  t(6, "2026-10-31", "transfer", "99", "1")]
         body = {"data": [{"id": "77", "attributes": {"transactions": found}}], "meta": {"pagination": {"total_pages": 1}}}
-        with mock.patch.object(app, "api", lambda path, params=None: body), \
-             mock.patch.object(app, "api_all", router({"/accounts": [account("1", "Compte", 0), account("5", "PEA Bourse", 0)]})):
-            got = app.month_transactions("2026-10")
+        with mock.patch.object(firefly, "api", lambda path, params=None: body), \
+             mock.patch.object(firefly, "api_all", router({"/accounts": [account("1", "Compte", 0), account("5", "PEA Bourse", 0)]})):
+            got = transactions.month_transactions("2026-10")
         self.assertEqual([x["id"] for x in got], [6, 2, 1])
         self.assertEqual(got[0]["date"], "2026-10-31")
 
@@ -249,12 +261,12 @@ class FigureTests(unittest.TestCase):
                     "notes": None, "bill_name": None}
         body = {"data": [{"id": "g", "attributes": {"transactions": [t(1, "2026-08-31"), t(2, "2026-09-15"), t(3, "2026-11-17"), t(4, "2026-11-18")]}}],
                 "meta": {"pagination": {"total_pages": 1}}}
-        with mock.patch.object(app, "api", lambda path, params=None: body), \
-             mock.patch.object(app, "api_all", router({"/accounts": [account("1", "Compte", 0)]})):
-            got = app.range_transactions("2026-09-01", "2026-11-17")
+        with mock.patch.object(firefly, "api", lambda path, params=None: body), \
+             mock.patch.object(firefly, "api_all", router({"/accounts": [account("1", "Compte", 0)]})):
+            got = transactions.range_transactions("2026-09-01", "2026-11-17")
             for start, end in (("2026-11-17", "2026-09-01"), ("2020-01-01", "2026-11-17")):
                 with self.assertRaises(ValueError):
-                    app.range_transactions(start, end)
+                    transactions.range_transactions(start, end)
         self.assertEqual([x["id"] for x in got], [3, 2])
 
     def test_expense_tree_groups_by_budget_then_category(self):
@@ -263,10 +275,10 @@ class FigureTests(unittest.TestCase):
         body = {"data": [{"attributes": {"transactions": [t("Courses", "Vie courante", "10"), t("Courses", "Vie courante", "5.5"),
                                                           t("Cinéma", "Loisirs", "8"), t(None, None, "3"), t("Valorisation", None, "99"), t("X", "Y", "50", src="5")]}}],
                 "meta": {"pagination": {"total_pages": 1}}}
-        with mock.patch.object(app, "api", lambda path, params=None: body), \
-             mock.patch.object(app, "api_all", router({"/accounts": [account("1", "Compte", 0), account("5", "PEA Bourse", 0)]})):
-            tree = app.expense_tree("2026-10")
-        self.assertEqual(tree, {"Vie courante": {"Courses": 15.5}, "Loisirs": {"Cinéma": 8.0}, "Sans budget": {app.UNCATEGORISED: 3.0}})
+        with mock.patch.object(firefly, "api", lambda path, params=None: body), \
+             mock.patch.object(firefly, "api_all", router({"/accounts": [account("1", "Compte", 0), account("5", "PEA Bourse", 0)]})):
+            tree = figures.expense_tree("2026-10")
+        self.assertEqual(tree, {"Vie courante": {"Courses": 15.5}, "Loisirs": {"Cinéma": 8.0}, "Sans budget": {firefly.UNCATEGORISED: 3.0}})
 
     def test_pea_data_contributions_and_positions(self):
         pea = account("5", "PEA Bourse", 1000)
@@ -277,9 +289,9 @@ class FigureTests(unittest.TestCase):
         quotes = {"CW8.PA": {"price": 100.0, "previous": 98.0}}
         positions = [{"symbol": "CW8.PA", "quantity": 2.0, "label": "ETF"}, {"symbol": "especes", "quantity": 3.2, "label": ""},
                      {"symbol": "NOPE.PA", "quantity": 1.0, "label": ""}]
-        with mock.patch.object(app, "api_all", router({"/accounts": [pea, account("1", "Compte", 0)], "/accounts/5/transactions": history})), \
-             mock.patch.object(app, "read_positions", lambda: positions), mock.patch.object(app, "yahoo_quote", lambda s: quotes.get(s)):
-            d = app.pea_data()
+        with mock.patch.object(firefly, "api_all", router({"/accounts": [pea, account("1", "Compte", 0)], "/accounts/5/transactions": history})), \
+             mock.patch.object(invest, "read_positions", lambda: positions), mock.patch.object(invest, "yahoo_quote", lambda s: quotes.get(s)):
+            d = invest.pea_data()
         self.assertEqual(d["contributions"], {"2026-08": 400.0, "2026-09": -50.0})
         self.assertEqual(d["invested"], 350.0)
         self.assertEqual(d["cash"], 3.2)
@@ -288,9 +300,9 @@ class FigureTests(unittest.TestCase):
         self.assertIsNone(d["positions"][1]["price"]); self.assertIsNone(d["positions"][1]["value"])
 
     def test_pea_data_without_a_positions_file_counts_the_balance_as_cash(self):
-        with mock.patch.object(app, "api_all", router({"/accounts": [account("5", "PEA Bourse", 123.4)], "/accounts/5/transactions": []})), \
-             mock.patch.object(app, "read_positions", lambda: None):
-            d = app.pea_data()
+        with mock.patch.object(firefly, "api_all", router({"/accounts": [account("5", "PEA Bourse", 123.4)], "/accounts/5/transactions": []})), \
+             mock.patch.object(invest, "read_positions", lambda: None):
+            d = invest.pea_data()
         self.assertFalse(d["has_file"]); self.assertEqual(d["cash"], 123.4)
 
 
@@ -304,9 +316,9 @@ class GoalsTests(unittest.TestCase):
             return [account("1", "Livret A", before_balance if params and params.get("date") else now_balance)]
         routes = {"/accounts": accounts, "/piggy-banks": piggies}
         routes.update({f"/piggy-banks/{p['id']}/events": events.get(p["id"], []) for p in piggies})
-        with mock.patch.object(app, "dt", FAKE_DT), mock.patch.object(app, "api_all", router(routes)), \
-             mock.patch.object(app, "read_goal_file", lambda: list(file_goals)):
-            return app.goals_data()
+        with fake_dt(), mock.patch.object(firefly, "api_all", router(routes)), \
+             mock.patch.object(goals, "read_goal_file", lambda: list(file_goals)):
+            return goals.goals_data()
 
     def by_name(self, data):
         return {g["name"]: g for g in data["goals"]}
@@ -347,7 +359,7 @@ class PiggyValidation(unittest.TestCase):
 
     def patched(self, piggies=(), write=None):
         routes = {"/accounts": self.ACCOUNTS, "/piggy-banks": list(piggies)}
-        return mock.patch.object(app, "api_all", router(routes)), mock.patch.object(app, "api_write", write or mock.Mock())
+        return mock.patch.object(firefly, "api_all", router(routes)), mock.patch.object(firefly, "api_write", write or mock.Mock())
 
     def test_create_rejects_bad_input(self):
         good = {"name": "Voyage", "target": 500, "account": "Livret A"}
@@ -355,17 +367,17 @@ class PiggyValidation(unittest.TestCase):
                                ({"target": 10_000_000}, "Nom ou montant"), ({"account": "Inconnu"}, "Compte inconnu")]:
             a, w = self.patched()
             with a, w as write, self.assertRaises(ValueError, msg=str(patch)) as ctx:
-                app.create_piggy({**good, **patch})
+                goals.create_piggy({**good, **patch})
             self.assertIn(message, str(ctx.exception)); write.assert_not_called()
         a, w = self.patched([{"id": "9", "attributes": {"name": "Voyage"}}])
         with a, w, self.assertRaises(ValueError) as ctx:
-            app.create_piggy(good)
+            goals.create_piggy(good)
         self.assertIn("déjà", str(ctx.exception))
 
     def test_create_sends_the_right_payload(self):
         a, w = self.patched()
-        with a, w as write, mock.patch.object(app, "dt", FAKE_DT):
-            app.create_piggy({"name": "Voyage", "target": "500", "account": "Livret A", "date": "2027-01-31"})
+        with a, w as write, fake_dt():
+            goals.create_piggy({"name": "Voyage", "target": "500", "account": "Livret A", "date": "2027-01-31"})
         method, path, payload = write.call_args.args
         self.assertEqual((method, path), ("POST", "/piggy-banks"))
         self.assertEqual(payload["target_amount"], "500.00"); self.assertEqual(payload["target_date"], "2027-01-31")
@@ -375,30 +387,30 @@ class PiggyValidation(unittest.TestCase):
         piggy = {"id": "9", "attributes": {"name": "Voyage"}}
         a, w = self.patched([piggy])
         with a, w, self.assertRaises(ValueError) as ctx:
-            app.update_piggy({"name": "Voyage"})
+            goals.update_piggy({"name": "Voyage"})
         self.assertIn("Rien", str(ctx.exception))
         with a, w, self.assertRaises(ValueError) as ctx:
-            app.update_piggy({"name": "Inconnue", "target": 5})
+            goals.update_piggy({"name": "Inconnue", "target": 5})
         self.assertIn("Aucune tirelire", str(ctx.exception))
         with a, w, self.assertRaises(ValueError):
-            app.update_piggy({"name": "Voyage", "target": -1})
+            goals.update_piggy({"name": "Voyage", "target": -1})
 
     def test_move_money(self):
         piggy = {"id": "9", "attributes": {"name": "Voyage", "accounts": [{"account_id": "1", "name": "Livret A", "current_amount": "50"}]}}
         a, w = self.patched([piggy])
         with a, w as write:
-            app.move_piggy({"name": "Voyage", "amount": 25})
+            goals.move_piggy({"name": "Voyage", "amount": 25})
             self.assertEqual(write.call_args.args[2]["accounts"], [{"account_id": "1", "current_amount": "75.00"}])
             for bad in (0, -60, 20_000_000):
                 with self.assertRaises(ValueError, msg=str(bad)):
-                    app.move_piggy({"name": "Voyage", "amount": bad})
+                    goals.move_piggy({"name": "Voyage", "amount": bad})
             self.assertEqual(write.call_count, 1)
 
     def test_move_translates_firefly_s_not_enough_money_error(self):
         piggy = {"id": "9", "attributes": {"name": "Voyage", "accounts": [{"account_id": "1", "name": "Livret A", "current_amount": "0"}]}}
         a, w = self.patched([piggy], write=mock.Mock(side_effect=ValueError("amount cannot be added")))
         with a, w, self.assertRaises(ValueError) as ctx:
-            app.move_piggy({"name": "Voyage", "amount": 10})
+            goals.move_piggy({"name": "Voyage", "amount": 10})
         self.assertIn("Pas assez d'argent libre", str(ctx.exception))
 
 
@@ -412,23 +424,23 @@ class CategorizeTests(unittest.TestCase):
                     "notes": None, "bill_name": None}
         body = {"data": [{"id": f"g{i}", "attributes": {"transactions": [hit(i)]}} for i in (7, 8, 9)]}
         lists = {"/accounts": [account("1", "Compte", 0)]}
-        with mock.patch.object(app, "api", mock.Mock(return_value=body)) as api, \
-             mock.patch.object(app, "api_all", router(lists)), mock.patch.object(app, "dt", FAKE_DT):
-            rows = app.past_matches("  Carrefour ", "withdrawal")
+        with mock.patch.object(firefly, "api", mock.Mock(return_value=body)) as api, \
+             mock.patch.object(firefly, "api_all", router(lists)), fake_dt():
+            rows = transactions.past_matches("  Carrefour ", "withdrawal")
             self.assertEqual([r["id"] for r in rows], [9, 8, 7])
             self.assertIn('description_contains:"Carrefour" has_no_category:true type:withdrawal date_after:2025-11-17', api.call_args.args[1]["query"])
-            self.assertEqual(app.past_matches("ab", "withdrawal"), []); self.assertEqual(app.past_matches("Carrefour", "transfer"), [])
+            self.assertEqual(transactions.past_matches("ab", "withdrawal"), []); self.assertEqual(transactions.past_matches("Carrefour", "transfer"), [])
 
     def test_applying_a_rule_to_the_past_skips_the_edited_transaction(self):
         rows = [{"id": 7, "group": "g7"}, {"id": 8, "group": "g8"}]
-        with mock.patch.object(app, "past_matches", return_value=rows):
+        with mock.patch.object(transactions, "past_matches", return_value=rows):
             write = self.run_categorize({"category": "Courses", "budget": "Vie courante", "rule": "Carrefour", "past": True})
         puts = [c.args for c in write.call_args_list if c.args[0] == "PUT" and c.args[1].startswith("/transactions/")]
         self.assertEqual([p[1] for p in puts], ["/transactions/3", "/transactions/g8"])
         self.assertEqual(puts[1][2]["transactions"][0], {"transaction_journal_id": "8", "category_name": "Courses", "budget_name": "Vie courante"})
 
     def test_without_the_flag_the_past_is_left_alone(self):
-        with mock.patch.object(app, "past_matches") as past:
+        with mock.patch.object(transactions, "past_matches") as past:
             self.run_categorize({"category": "Courses", "rule": "Carrefour"})
         past.assert_not_called()
 
@@ -436,12 +448,12 @@ class CategorizeTests(unittest.TestCase):
         current = {"transaction_journal_id": "7", "category_name": None, "type": "withdrawal", **(current or {})}
         reads = {"/transactions/3": {"data": {"attributes": {"transactions": [current]}}}}
         lists = {"/rules": [{"id": "5", "attributes": {"title": t}} for t in rules],
-                 "/rule-groups": [{"id": "1", "attributes": {"title": app.RULE_GROUP}}]}
-        with mock.patch.object(app, "taxonomy", return_value=self.TAX), \
-                mock.patch.object(app, "api", side_effect=lambda path, *a, **k: reads[path]), \
-                mock.patch.object(app, "api_all", side_effect=lambda path, *a, **k: lists[path]), \
-                mock.patch.object(app, "api_write") as write:
-            app.categorize({"id": 7, "group": 3, **body})
+                 "/rule-groups": [{"id": "1", "attributes": {"title": transactions.RULE_GROUP}}]}
+        with mock.patch.object(transactions, "taxonomy", return_value=self.TAX), \
+                mock.patch.object(firefly, "api", side_effect=lambda path, *a, **k: reads[path]), \
+                mock.patch.object(firefly, "api_all", side_effect=lambda path, *a, **k: lists[path]), \
+                mock.patch.object(firefly, "api_write") as write:
+            transactions.categorize({"id": 7, "group": 3, **body})
         return write
 
     def test_sets_category_and_budget_without_firing_rules(self):
@@ -490,28 +502,28 @@ class AlertsTests(unittest.TestCase):
 
     def test_an_expense_far_above_the_usual_is_flagged_only_when_recent(self):
         tx = self.tx
-        got = app.alerts_from(self.history([tx(6, "2026-11-10", 120), tx(7, "2026-11-01", 900), tx(8, "2026-11-12", 40)]), self.TODAY)
+        got = transactions.alerts_from(self.history([tx(6, "2026-11-10", 120), tx(7, "2026-11-01", 900), tx(8, "2026-11-12", 40)]), self.TODAY)
         self.assertEqual([(u["description"], u["usual"]) for u in got["unusual"]], [("t6", 22.0)])
 
     def test_few_samples_or_small_amounts_are_not_unusual(self):
         tx = self.tx
-        self.assertEqual(app.alerts_from({"2026-11": [tx(1, "2026-11-10", 400)]}, self.TODAY)["unusual"], [])
-        self.assertEqual(app.alerts_from(self.history([tx(6, "2026-11-10", 49)]), self.TODAY)["unusual"], [])
+        self.assertEqual(transactions.alerts_from({"2026-11": [tx(1, "2026-11-10", 400)]}, self.TODAY)["unusual"], [])
+        self.assertEqual(transactions.alerts_from(self.history([tx(6, "2026-11-10", 49)]), self.TODAY)["unusual"], [])
 
     def test_a_subscription_price_change_shows_for_a_while(self):
-        got = app.alerts_from(self.history([self.tx(8, "2026-11-14", 30, bill="Netflix")]), self.TODAY)
+        got = transactions.alerts_from(self.history([self.tx(8, "2026-11-14", 30, bill="Netflix")]), self.TODAY)
         self.assertEqual(got["price_changes"], [{"name": "Netflix", "before": 22, "now": 30, "date": "2026-11-14"}])
-        same = app.alerts_from(self.history([self.tx(8, "2026-11-14", 22.1, bill="Netflix")]), self.TODAY)
+        same = transactions.alerts_from(self.history([self.tx(8, "2026-11-14", 22.1, bill="Netflix")]), self.TODAY)
         self.assertEqual(same["price_changes"], [])
-        old = app.alerts_from(self.history([]), self.TODAY)  # the change of October is over by now
+        old = transactions.alerts_from(self.history([]), self.TODAY)  # the change of October is over by now
         self.assertEqual(old["price_changes"], [])
 
     def test_uncategorised_counts_spending_and_income_but_not_transfers(self):
         tx = self.tx
-        got = app.alerts_from(self.history([tx(7, "2026-11-12", 14, cat=None), tx(8, "2026-11-13", 6.5, cat=None, kind="deposit"),
+        got = transactions.alerts_from(self.history([tx(7, "2026-11-12", 14, cat=None), tx(8, "2026-11-13", 6.5, cat=None, kind="deposit"),
                                              tx(9, "2026-11-15", 500, cat=None, kind="transfer")]), self.TODAY)
         self.assertEqual(got["uncategorised"], {"count": 2, "amount": 20.5, "month": "2026-11"})
-        self.assertEqual(app.alerts_from(self.history([]), self.TODAY)["uncategorised"], {"count": 0, "amount": 0.0, "month": None})
+        self.assertEqual(transactions.alerts_from(self.history([]), self.TODAY)["uncategorised"], {"count": 0, "amount": 0.0, "month": None})
 
 
 class SearchTests(unittest.TestCase):
@@ -523,9 +535,9 @@ class SearchTests(unittest.TestCase):
 
     def search(self, text, hits):
         body = {"data": [{"id": "g", "attributes": {"transactions": hits}}]}
-        with mock.patch.object(app, "api", mock.Mock(return_value=body)) as api, \
-             mock.patch.object(app, "api_all", router({"/accounts": [account("1", "Compte", 0), account("5", "PEA Bourse", 0)]})):
-            return app.search_transactions(text), api
+        with mock.patch.object(firefly, "api", mock.Mock(return_value=body)) as api, \
+             mock.patch.object(firefly, "api_all", router({"/accounts": [account("1", "Compte", 0), account("5", "PEA Bourse", 0)]})):
+            return transactions.search_transactions(text), api
 
     def test_short_text_asks_nothing(self):
         got, api = self.search("a", [])
@@ -544,13 +556,13 @@ class SearchTests(unittest.TestCase):
 
 class BenchmarkTests(unittest.TestCase):
     def setUp(self):
-        app._last_good.clear()
+        invest._last_good.clear()
 
     def history(self, payload):
         response = mock.MagicMock()
         response.__enter__.return_value = io.BytesIO(json.dumps(payload).encode())
-        with mock.patch.object(app.urllib.request, "urlopen", return_value=response):
-            return app.yahoo_history("CW8.PA", "2026-09-10")
+        with mock.patch.object(urllib.request, "urlopen", return_value=response):
+            return invest.yahoo_history("CW8.PA", "2026-09-10")
 
     def chart(self, currency="EUR"):
         return {"chart": {"result": [{"meta": {"currency": currency}, "timestamp": [1788000000, 1788086400, 1788172800],
@@ -566,19 +578,19 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIsNone(self.history({"chart": {"result": None}}))
 
     def test_no_deposit_means_no_benchmark_and_no_call(self):
-        with mock.patch.object(app, "yahoo_history") as call:
-            self.assertIsNone(app.benchmark_data([]))
+        with mock.patch.object(invest, "yahoo_history") as call:
+            self.assertIsNone(invest.benchmark_data([]))
             call.assert_not_called()
             call.return_value = [["2026-09-10", 1.0]]
-            got = app.benchmark_data([{"date": "2026-09-28", "amount": 10.0}])
-        self.assertEqual((got["symbol"], got["prices"]), (app.BENCHMARK, [["2026-09-10", 1.0]]))
+            got = invest.benchmark_data([{"date": "2026-09-28", "amount": 10.0}])
+        self.assertEqual((got["symbol"], got["prices"]), (invest.BENCHMARK, [["2026-09-10", 1.0]]))
         self.assertEqual(call.call_args.args[1], "2026-09-28")
 
 
 class ReviewTests(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        patcher = mock.patch.object(app, "BILANS_DIR", self.dir.name)
+        patcher = mock.patch.object(reviews, "BILANS_DIR", self.dir.name)
         patcher.start(); self.addCleanup(patcher.stop); self.addCleanup(self.dir.cleanup)
 
     def write(self, name, content):
@@ -594,41 +606,41 @@ class ReviewTests(unittest.TestCase):
         self.review("2026-09", "Septembre"); self.review("2026-10", "Octobre")
         self.write("2026-08.comments.json", {"headline": "sans chiffres"})   # no facts file
         self.write("2026-07.comments.json", "not json"); self.write("2026-07.facts.json", "{}")
-        self.assertEqual([r["month"] for r in app.reviews_list()], ["2026-10", "2026-09"])
-        self.assertEqual(app.reviews_list()[0]["headline"], "Octobre")
+        self.assertEqual([r["month"] for r in reviews.reviews_list()], ["2026-10", "2026-09"])
+        self.assertEqual(reviews.reviews_list()[0]["headline"], "Octobre")
 
     def test_no_folder_means_no_reviews(self):
-        with mock.patch.object(app, "BILANS_DIR", os.path.join(self.dir.name, "absent")):
-            self.assertEqual(app.reviews_list(), [])
+        with mock.patch.object(reviews, "BILANS_DIR", os.path.join(self.dir.name, "absent")):
+            self.assertEqual(reviews.reviews_list(), [])
 
     def test_a_review_keeps_the_figures_but_not_every_transaction(self):
         self.review("2026-10"); self.write("2026-10.html", "<p>x</p>")
-        got = app.review_data("2026-10")
+        got = reviews.review_data("2026-10")
         self.assertNotIn("transactions", got["facts"]); self.assertEqual(got["facts"]["earned"], 100)
         self.assertEqual(got["facts"]["largest"], [{"type": "withdrawal", "id": "1"}]); self.assertTrue(got["has_html"])
         with self.assertRaises(KeyError):
-            app.review_data("2026-01")
+            reviews.review_data("2026-01")
 
     def test_the_month_cannot_climb_out_of_the_folder(self):
         for bad in ("../etc/passwd", "2026-13", "2026-1", "2026-10/../x"):
             with self.assertRaises(ValueError, msg=bad):
-                app.read_review_file(bad, "html")
+                reviews.read_review_file(bad, "html")
 
 
 class PeaKindTests(unittest.TestCase):
     def test_categories_decide_what_a_pea_transaction_is(self):
         for category, kind in (("Dividendes", "dividend"), ("dividende ETF", "dividend"), ("Frais de courtage", "fee"),
                                ("Commissions", "fee"), ("Valo", "flow"), (None, "flow"), ("Virements émis", "flow")):
-            self.assertEqual(app.pea_kind(category), kind, category)
+            self.assertEqual(invest.pea_kind(category), kind, category)
 
     def test_dividends_and_fees_stay_out_of_the_deposits(self):
         pea = account("5", "PEA Bourse", 1000)
         def tx(date, src, dst, amount, cat=None):
             return {"attributes": {"transactions": [{"date": date + "T00:00:00+01:00", "source_id": src, "destination_id": dst, "amount": amount, "category_name": cat}]}}
         history = [tx("2026-08-10", "1", "5", "300"), tx("2026-09-01", "9", "5", "4.5", cat="Dividendes"), tx("2026-09-02", "5", "8", "1.2", cat="Frais de courtage")]
-        with mock.patch.object(app, "api_all", router({"/accounts": [pea], "/accounts/5/transactions": history})), \
-             mock.patch.object(app, "read_positions", return_value=None), mock.patch.object(app, "benchmark_data", return_value=None):
-            got = app.pea_data()
+        with mock.patch.object(firefly, "api_all", router({"/accounts": [pea], "/accounts/5/transactions": history})), \
+             mock.patch.object(invest, "read_positions", return_value=None), mock.patch.object(invest, "benchmark_data", return_value=None):
+            got = invest.pea_data()
         self.assertEqual(got["invested"], 300.0); self.assertEqual([f["amount"] for f in got["flows"]], [300.0])
         self.assertEqual(got["dividends"], [{"date": "2026-09-01", "amount": 4.5}])
         self.assertEqual(got["fees"], [{"date": "2026-09-02", "amount": 1.2}])
@@ -641,9 +653,9 @@ class CreateTransactionTests(unittest.TestCase):
 
     def create(self, **patch):
         body = {**self.GOOD, **patch}
-        with mock.patch.object(app, "taxonomy", return_value=self.TAX), mock.patch.object(app, "api_write") as write, \
-             mock.patch.object(app, "dt", FAKE_DT):
-            app.create_transaction(body)
+        with mock.patch.object(transactions, "taxonomy", return_value=self.TAX), mock.patch.object(firefly, "api_write") as write, \
+             fake_dt():
+            transactions.create_transaction(body)
         return write
 
     def test_an_expense_is_posted_from_the_account_and_rules_still_run(self):
@@ -662,9 +674,9 @@ class CreateTransactionTests(unittest.TestCase):
                                ({"description": "  "}, "libellé"), ({"description": "x" * 121}, "libellé"), ({"date": "demain"}, "Date"),
                                ({"date": "2026-11-18"}, "futur"), ({"account": "PEA Bourse"}, "Compte"), ({"category": "Valorisation"}, "Catégorie"),
                                ({"budget": "Zzz"}, "Budget")):
-            with mock.patch.object(app, "api_write") as write, self.assertRaises(ValueError, msg=str(patch)) as ctx:
-                with mock.patch.object(app, "taxonomy", return_value=self.TAX), mock.patch.object(app, "dt", FAKE_DT):
-                    app.create_transaction({**self.GOOD, **patch})
+            with mock.patch.object(firefly, "api_write") as write, self.assertRaises(ValueError, msg=str(patch)) as ctx:
+                with mock.patch.object(transactions, "taxonomy", return_value=self.TAX), fake_dt():
+                    transactions.create_transaction({**self.GOOD, **patch})
             self.assertIn(message, str(ctx.exception)); write.assert_not_called()
 
 
@@ -673,9 +685,9 @@ class SuggestionTests(unittest.TestCase):
 
     def apply(self, current_category=None, **body):
         journal = {"data": {"id": "30", "attributes": {"transactions": [{"transaction_journal_id": "492", "category_name": current_category}]}}}
-        with mock.patch.object(app, "taxonomy", return_value=self.TAX), mock.patch.object(app, "api", return_value=journal) as read, \
-             mock.patch.object(app, "api_write") as write:
-            app.apply_suggestion({"id": 492, "category": "Aide familiale", **body})
+        with mock.patch.object(transactions, "taxonomy", return_value=self.TAX), mock.patch.object(firefly, "api", return_value=journal) as read, \
+             mock.patch.object(firefly, "api_write") as write:
+            transactions.apply_suggestion({"id": 492, "category": "Aide familiale", **body})
         return read, write
 
     def test_only_the_category_is_set_and_the_group_is_found_from_the_journal(self):
@@ -696,16 +708,16 @@ class SuggestionTests(unittest.TestCase):
     def test_the_review_drops_what_was_filed_since_and_survives_a_failure(self):
         rows = [{"id": "539"}, {"id": "492"}]
         body = {"data": [{"attributes": {"transactions": [{"transaction_journal_id": "492"}]}}]}
-        with mock.patch.object(app, "api", return_value=body):
-            self.assertEqual(app.still_uncategorised(rows, "2026-10-01", "2026-10-31"), [{"id": "492"}])
-        with mock.patch.object(app, "api", side_effect=urllib.error.URLError("down")):
-            self.assertEqual(app.still_uncategorised(rows, "2026-10-01", "2026-10-31"), rows)
-        self.assertEqual(app.still_uncategorised([], "2026-10-01", "2026-10-31"), [])
+        with mock.patch.object(firefly, "api", return_value=body):
+            self.assertEqual(reviews.still_uncategorised(rows, "2026-10-01", "2026-10-31"), [{"id": "492"}])
+        with mock.patch.object(firefly, "api", side_effect=urllib.error.URLError("down")):
+            self.assertEqual(reviews.still_uncategorised(rows, "2026-10-01", "2026-10-31"), rows)
+        self.assertEqual(reviews.still_uncategorised([], "2026-10-01", "2026-10-31"), [])
 
 
 class YahooFallbackTests(unittest.TestCase):
     def setUp(self):
-        app._last_good.clear()
+        invest._last_good.clear()
 
     @staticmethod
     def answer(price, currency="EUR"):
@@ -721,23 +733,23 @@ class YahooFallbackTests(unittest.TestCase):
             if "query1" in request.full_url:
                 raise urllib.error.URLError("down")
             return self.answer(100.0)
-        with mock.patch.object(app.urllib.request, "urlopen", fake):
-            self.assertEqual(app.yahoo_quote("CW8.PA"), {"price": 100.0, "previous": 99.0})
+        with mock.patch.object(urllib.request, "urlopen", fake):
+            self.assertEqual(invest.yahoo_quote("CW8.PA"), {"price": 100.0, "previous": 99.0})
         self.assertEqual(len(calls), 2); self.assertIn("query2", calls[1])
 
     def test_when_yahoo_is_down_the_last_price_comes_back_marked_with_its_day(self):
-        with mock.patch.object(app.urllib.request, "urlopen", return_value=self.answer(100.0)):
-            app.yahoo_quote("CW8.PA")
-        with mock.patch.object(app.urllib.request, "urlopen", side_effect=urllib.error.URLError("down")):
-            got = app.yahoo_quote("CW8.PA")
+        with mock.patch.object(urllib.request, "urlopen", return_value=self.answer(100.0)):
+            invest.yahoo_quote("CW8.PA")
+        with mock.patch.object(urllib.request, "urlopen", side_effect=urllib.error.URLError("down")):
+            got = invest.yahoo_quote("CW8.PA")
             self.assertEqual((got["price"], got["as_of"]), (100.0, datetime.date.today().isoformat()))
-            self.assertIsNone(app.yahoo_quote("OTHER.PA"), "nothing known about a symbol never seen")
+            self.assertIsNone(invest.yahoo_quote("OTHER.PA"), "nothing known about a symbol never seen")
 
     def test_a_fresh_answer_has_no_as_of_and_a_non_euro_one_is_refused(self):
-        with mock.patch.object(app.urllib.request, "urlopen", return_value=self.answer(100.0)):
-            self.assertNotIn("as_of", app.yahoo_quote("CW8.PA"))
-        with mock.patch.object(app.urllib.request, "urlopen", return_value=self.answer(100.0, "USD")):
-            self.assertIsNone(app.yahoo_quote("SPY"))
+        with mock.patch.object(urllib.request, "urlopen", return_value=self.answer(100.0)):
+            self.assertNotIn("as_of", invest.yahoo_quote("CW8.PA"))
+        with mock.patch.object(urllib.request, "urlopen", return_value=self.answer(100.0, "USD")):
+            self.assertIsNone(invest.yahoo_quote("SPY"))
 
 
 class HttpTests(unittest.TestCase):
@@ -754,7 +766,7 @@ class HttpTests(unittest.TestCase):
         cls.server.shutdown(); cls.server.server_close()
 
     def setUp(self):
-        patcher = mock.patch.object(app, "cache", app.Cache(300))
+        patcher = mock.patch.object(ttlcache, "cache", ttlcache.Cache(300))
         patcher.start(); self.addCleanup(patcher.stop)
 
     def request(self, method, path, headers=None, body=None):
@@ -816,7 +828,7 @@ class HttpTests(unittest.TestCase):
         r, body = self.request("HEAD", "/healthz"); self.assertEqual((r.status, body), (200, b""))
 
     def test_api_data_is_cached_and_refresh_rebuilds(self):
-        with mock.patch.object(app, "build", mock.Mock(side_effect=lambda m: {"months": m, "n": time.time()})) as build:
+        with mock.patch.object(figures, "build", mock.Mock(side_effect=lambda m: {"months": m, "n": time.time()})) as build:
             a = json.loads(self.request("GET", "/api/data?months=24")[1]); b = json.loads(self.request("GET", "/api/data?months=24")[1])
             self.assertEqual(a, b); self.assertEqual(build.call_count, 1)
             self.request("GET", "/api/data?months=24&refresh=1")
@@ -825,18 +837,18 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(json.loads(self.request("GET", "/api/data?months=0")[1])["months"], 1)
 
     def test_refresh_serves_the_last_figures_if_firefly_is_down(self):
-        with mock.patch.object(app, "build", mock.Mock(return_value={"ok": 1})):
+        with mock.patch.object(figures, "build", mock.Mock(return_value={"ok": 1})):
             self.request("GET", "/api/data?months=24")
-        with mock.patch.object(app, "build", mock.Mock(side_effect=urllib.error.URLError("down"))):
+        with mock.patch.object(figures, "build", mock.Mock(side_effect=urllib.error.URLError("down"))):
             r, body = self.request("GET", "/api/data?months=24&refresh=1")
         self.assertEqual((r.status, json.loads(body)), (200, {"ok": 1}))
 
     def test_errors_become_json_without_leaking_internals(self):
-        with mock.patch.object(app, "bills_data", mock.Mock(side_effect=urllib.error.URLError("refused"))):
+        with mock.patch.object(figures, "bills_data", mock.Mock(side_effect=urllib.error.URLError("refused"))):
             r, body = self.request("GET", "/api/bills")
         self.assertEqual(r.status, 502); self.assertIn("error", json.loads(body))
-        app.cache = app.Cache(300)
-        with mock.patch.object(app, "bills_data", mock.Mock(side_effect=RuntimeError("secret token abc"))), mock.patch("builtins.print"):
+        ttlcache.cache = ttlcache.Cache(300)
+        with mock.patch.object(figures, "bills_data", mock.Mock(side_effect=RuntimeError("secret token abc"))), mock.patch("builtins.print"):
             r, body = self.request("GET", "/api/bills")
         self.assertEqual(r.status, 500); self.assertNotIn(b"secret", body); self.assertEqual(json.loads(body), {"error": "Erreur interne"})
 
@@ -850,7 +862,7 @@ class HttpTests(unittest.TestCase):
         return self.request("POST", path, {**self.POST_HEADERS, **(headers or {})}, body if isinstance(body, (bytes, str)) else json.dumps(body))
 
     def test_post_needs_the_custom_header_json_and_a_same_site_origin(self):
-        with mock.patch.object(app, "create_piggy") as create:
+        with mock.patch.object(goals, "create_piggy") as create:
             self.assertEqual(self.post({"action": "create"}, {"X-Requested-With": "other"})[0].status, 400)
             self.assertEqual(self.post({"action": "create"}, {"Content-Type": "text/plain"})[0].status, 400)
             self.assertEqual(self.post({"action": "create"}, {"Origin": "https://evil.example"})[0].status, 403)
@@ -866,18 +878,18 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.post({"action": "create"}, path="/api/other")[0].status, 404)
 
     def test_post_returns_the_validation_message_and_refreshes_goals(self):
-        with mock.patch.object(app, "goals_data", mock.Mock(side_effect=lambda: {"n": time.time()})) as goals:
-            self.request("GET", "/api/goals"); self.request("GET", "/api/goals"); self.assertEqual(goals.call_count, 1)
-            with mock.patch.object(app, "move_piggy", mock.Mock(side_effect=ValueError("Montant invalide"))):
+        with mock.patch.object(goals, "goals_data", mock.Mock(side_effect=lambda: {"n": time.time()})) as goals_mock:
+            self.request("GET", "/api/goals"); self.request("GET", "/api/goals"); self.assertEqual(goals_mock.call_count, 1)
+            with mock.patch.object(goals, "move_piggy", mock.Mock(side_effect=ValueError("Montant invalide"))):
                 r, body = self.post({"action": "move"})
             self.assertEqual((r.status, json.loads(body)), (400, {"error": "Montant invalide"}))
-            self.assertEqual(goals.call_count, 1, "a failed write keeps the cache")
-            with mock.patch.object(app, "move_piggy"):
+            self.assertEqual(goals_mock.call_count, 1, "a failed write keeps the cache")
+            with mock.patch.object(goals, "move_piggy"):
                 self.assertEqual(self.post({"action": "move"})[0].status, 200)
-            self.request("GET", "/api/goals"); self.assertEqual(goals.call_count, 2, "a successful write drops the goals cache")
+            self.request("GET", "/api/goals"); self.assertEqual(goals_mock.call_count, 2, "a successful write drops the goals cache")
 
     def test_categorize_route_expires_every_cache(self):
-        with mock.patch.object(app, "categorize") as cat, mock.patch.object(app, "bills_data", mock.Mock(side_effect=lambda: {"n": time.time()})) as bills:
+        with mock.patch.object(transactions, "categorize") as cat, mock.patch.object(figures, "bills_data", mock.Mock(side_effect=lambda: {"n": time.time()})) as bills:
             self.request("GET", "/api/bills")
             self.assertEqual(self.post({"action": "categorize"}, path="/api/transaction")[0].status, 200)
             cat.assert_called_once()
@@ -885,7 +897,7 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.post({"action": "create"}, path="/api/transaction")[0].status, 400)
 
     def test_post_unexpected_error_is_a_500(self):
-        with mock.patch.object(app, "delete_piggy", mock.Mock(side_effect=RuntimeError("boom"))), mock.patch("builtins.print"):
+        with mock.patch.object(goals, "delete_piggy", mock.Mock(side_effect=RuntimeError("boom"))), mock.patch("builtins.print"):
             r, body = self.post({"action": "delete"})
         self.assertEqual(r.status, 500); self.assertNotIn(b"boom", body)
 
