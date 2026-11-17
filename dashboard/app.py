@@ -242,7 +242,7 @@ def month_transactions(month: str) -> list[dict]:
                     "description": t["description"], "amount": money(t["amount"]),
                     "category": t["category_name"], "budget": t["budget_name"],
                     "source": t["source_name"], "destination": t["destination_name"],
-                    "notes": t["notes"],
+                    "notes": t["notes"], "bill": t["bill_name"],
                 })
         if page >= body["meta"]["pagination"]["total_pages"]:
             break
@@ -585,6 +585,67 @@ def add_rule(text: str, category: str, budget: str, kind: str) -> None:
     api_write("PUT" if existing else "POST", f"/rules/{existing[0]}" if existing else "/rules", rule)
 
 
+UNUSUAL_RECENT_DAYS = 14
+UNUSUAL_MIN_AMOUNT = 50
+UNUSUAL_FACTOR = 3
+UNUSUAL_MIN_SAMPLES = 4
+PRICE_CHANGE_DAYS = 45
+
+
+def alerts_from(history: dict[str, list[dict]], today: dt.date) -> dict:
+    """What deserves a look, from the transactions of the last months ({"YYYY-MM": [...]}):
+    recent expenses far above the usual for their category, subscriptions whose last payment
+    differs from the one before, and the transactions still without a category this month."""
+    current = today.strftime("%Y-%m")
+    everything = sorted((t for txs in history.values() for t in txs), key=lambda t: (t["date"], t["id"]))
+
+    since = (today - dt.timedelta(days=UNUSUAL_RECENT_DAYS)).isoformat()
+    amounts: dict[str, list[float]] = {}  # what each category usually costs, before the recent days
+    for t in everything:
+        if t["type"] == "withdrawal" and t["category"] and t["date"] < since:
+            amounts.setdefault(t["category"], []).append(t["amount"])
+    unusual = []
+    for t in everything:
+        usual = sorted(amounts.get(t["category"] or "", []))
+        if (t["type"] != "withdrawal" or t["date"] < since or len(usual) < UNUSUAL_MIN_SAMPLES
+                or t["amount"] < UNUSUAL_MIN_AMOUNT):
+            continue
+        median = usual[len(usual) // 2]
+        if t["amount"] >= UNUSUAL_FACTOR * median:
+            unusual.append({"description": t["description"], "date": t["date"], "amount": t["amount"],
+                            "category": t["category"], "usual": money(median)})
+    unusual = sorted(unusual, key=lambda u: -u["amount"] / max(u["usual"], 1))[:3]
+
+    by_bill: dict[str, list[dict]] = {}
+    for t in everything:
+        if t["bill"] and t["type"] == "withdrawal":
+            by_bill.setdefault(t["bill"], []).append(t)
+    changes = []
+    for name, payments in by_bill.items():
+        if len(payments) >= 2:
+            before, now = payments[-2]["amount"], payments[-1]["amount"]
+            if (payments[-1]["date"] >= (today - dt.timedelta(days=PRICE_CHANGE_DAYS)).isoformat()
+                    and abs(now - before) >= 0.5 and abs(now - before) >= 0.03 * before):
+                changes.append({"name": name, "before": before, "now": now, "date": payments[-1]["date"]})
+
+    months = sorted(m for m in history if m <= current)[-2:]
+    missing = {"count": 0, "amount": 0.0, "month": None}
+    for m in reversed(months):
+        loose = [t for t in history[m] if t["type"] != "transfer" and not t["category"]]
+        if loose:
+            missing = {"count": len(loose), "amount": money(sum(t["amount"] for t in loose)), "month": m}
+            break
+    return {"unusual": unusual, "price_changes": changes, "uncategorised": missing}
+
+
+def alerts_data() -> dict:
+    today = dt.date.today()
+    months = [f"{y}-{m:02d}" for y, m in months_back(5)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        history = dict(zip(months, pool.map(lambda m: cached(f"/api/transactions{m}", lambda: month_transactions(m)), months)))
+    return alerts_from(history, today)
+
+
 class Cache:
     """TTL cache with one lock per key: concurrent loads of the same page share one set of API
     calls, but a slow key (Yahoo quotes, a 24-month build) never blocks the others. When Firefly III
@@ -732,6 +793,8 @@ class Handler(BaseHTTPRequestHandler):
                 make = month_transactions if url.path == "/api/transactions" else month_budgets
                 return self.reply(200, json.dumps(cached(f"{url.path}{month}", lambda: make(month))).encode(),
                                   "application/json")
+            if url.path == "/api/alerts":
+                return self.reply(200, json.dumps(cached("alerts", alerts_data)).encode(), "application/json")
             if url.path == "/api/taxonomy":
                 return self.reply(200, json.dumps(cached("taxonomy", taxonomy)).encode(), "application/json")
             if url.path == "/api/bills":

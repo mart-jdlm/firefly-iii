@@ -47,7 +47,7 @@ async function load(refresh,keep){
  const was=keep&&all?all.months[sel].month:null;
  if(!keep)$('err').style.display='none';
  document.body.classList.add('loading');
- if(refresh||keep){memo.tx={};memo.bud={};memo.flow={};memo.bills=null;memo.pea=null;memo.goals=null}
+ if(refresh||keep){memo.tx={};memo.bud={};memo.flow={};memo.bills=null;memo.alerts=null;memo.tax=null;memo.pea=null;memo.goals=null}
  setOffline(false);
  try{
   setAll(await json(`/api/data?months=24${refresh?'&refresh=1':''}`));

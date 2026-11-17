@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { billCost, buildCsv, computeAlerts, computeInsights, project, runway, sortBills, yoyRows } from '../../static/js/logic.js';
+import { billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, project, runway, sortBills, yoyRows } from '../../static/js/logic.js';
 
 const plain = s => s.replace(/[  ]/g, ' ');
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} is not ${b}`);
@@ -220,4 +220,23 @@ test('csv does not modify its input order', () => {
   const list = [tx({ date: '2026-10-09' }), tx({ date: '2026-10-01' })];
   buildCsv(list);
   assert.deepEqual(list.map(t => t.date), ['2026-10-09', '2026-10-01']);
+});
+
+test('extraAlerts: nothing without data, and each kind becomes a clickable item', () => {
+  assert.deepEqual(extraAlerts(null), []);
+  assert.deepEqual(extraAlerts({ unusual: [], price_changes: [], uncategorised: { count: 0 } }), []);
+  const items = extraAlerts({
+    unusual: [{ description: 'Garage', date: '2026-11-10', amount: 120, category: 'Voiture', usual: 22 }],
+    price_changes: [{ name: 'Netflix', before: 13.49, now: 15.49, date: '2026-11-14' }, { name: 'Free', before: 20, now: 15, date: '2026-11-02' }],
+    uncategorised: { count: 2, amount: 31.5, month: '2026-11' } });
+  assert.equal(items.length, 4);
+  assert.deepEqual(items[0].slice(1, 2).concat(items[0][4]), ['warn', { month: '2026-11', cat: 'Voiture' }]);
+  assert.match(items[1][2], /hausse/); assert.equal(items[1][1], 'warn');
+  assert.match(items[2][2], /baisse/); assert.equal(items[2][1], '');
+  assert.match(items[3][2], /^2 transactions sans catégorie/); assert.deepEqual(items[3][4], { month: '2026-11', cat: 'none' });
+});
+
+test('extraAlerts shortens a long description', () => {
+  const [item] = extraAlerts({ unusual: [{ description: 'x'.repeat(80), date: '2026-11-10', amount: 99, category: 'C', usual: 10 }] });
+  assert.ok(item[3].startsWith('x'.repeat(47) + '…'));
 });

@@ -73,6 +73,22 @@ export function computeAlerts({ budgets, bills, months, now }) {
   return { items: out.map(a => a.slice(0, 4)), budgetCount };
 }
 
+/** Alerts computed by the server (/api/alerts): unusual expenses, subscription price changes and
+ *  transactions without a category. Items are [emoji, tone, title, text, link], where link says
+ *  where a click leads: {month, cat?, q?} for the Transactions page. */
+export function extraAlerts(data) {
+  if (!data) return [];
+  const out = [], m = data.uncategorised;
+  (data.unusual || []).forEach(u => out.push(['🔍', 'warn', `Dépense inhabituelle : ${eur2(u.amount)}`,
+    `${u.description.length > 48 ? u.description.slice(0, 47) + '…' : u.description} (${u.category}) : d'habitude environ ${eur(u.usual)}.`,
+    { month: u.date.slice(0, 7), cat: u.category }]));
+  (data.price_changes || []).forEach(c => out.push(['🏷️', c.now > c.before ? 'warn' : '', `${c.name} : ${c.now > c.before ? 'hausse' : 'baisse'} de prix`,
+    `Dernier prélèvement ${eur2(c.now)} contre ${eur2(c.before)} le précédent.`, { month: c.date.slice(0, 7), q: c.name }]));
+  if (m && m.count) out.push(['🗂️', '', `${m.count} transaction${m.count > 1 ? 's' : ''} sans catégorie`,
+    `${eur(m.amount)} à classer en ${mlabel(m.month, true).split(' ')[0]}.`, { month: m.month, cat: 'none' }]);
+  return out;
+}
+
 /** "À retenir": up to 5 [emoji, html] lines from the last complete month, the 3 before it and the
  *  next bill (`bills` may be null). */
 export function computeInsights(months, bills) {

@@ -100,7 +100,7 @@ class ApiLayerTests(unittest.TestCase):
     def test_searches_read_every_page(self):
         def tx(id):
             return {"transaction_journal_id": id, "date": "2026-10-05T00:00:00+01:00", "type": "withdrawal", "description": "d", "amount": "1",
-                    "category_name": None, "budget_name": None, "source_id": "1", "source_name": "s", "destination_id": "9", "destination_name": "d", "notes": None}
+                    "category_name": None, "budget_name": None, "source_id": "1", "source_name": "s", "destination_id": "9", "destination_name": "d", "notes": None, "bill_name": None}
         pages = {1: {"data": [{"id": "g", "attributes": {"transactions": [tx(1)]}}], "meta": {"pagination": {"total_pages": 2}}},
                  2: {"data": [{"id": "g", "attributes": {"transactions": [tx(2)]}}], "meta": {"pagination": {"total_pages": 2}}}}
         with mock.patch.object(app, "api", lambda path, params=None: pages[params["page"]]), \
@@ -228,7 +228,7 @@ class FigureTests(unittest.TestCase):
     def test_month_transactions_filters_and_sorts(self):
         def t(id, date, kind, src, dst, cat="Courses", amount="10"):
             return {"transaction_journal_id": id, "date": date + "T10:00:00+01:00", "type": kind, "description": f"t{id}", "amount": amount,
-                    "category_name": cat, "budget_name": None, "source_id": src, "source_name": "s", "destination_id": dst, "destination_name": "d", "notes": None}
+                    "category_name": cat, "budget_name": None, "source_id": src, "source_name": "s", "destination_id": dst, "destination_name": "d", "notes": None, "bill_name": None}
         found = [t(1, "2026-10-05", "withdrawal", "1", "99"), t(2, "2026-10-09", "deposit", "99", "1"),
                  t(3, "2026-10-07", "withdrawal", "5", "99"),                  # from the PEA: not everyday
                  t(4, "2026-10-08", "withdrawal", "1", "99", cat="Valorisation"),
@@ -431,6 +431,44 @@ class CategorizeTests(unittest.TestCase):
         self.assertEqual(again.call_args.args[:2], ("PUT", "/rules/5"))
         with self.assertRaises(ValueError):
             self.run_categorize({"category": "Courses", "rule": "ab"})
+
+
+class AlertsTests(unittest.TestCase):
+    TODAY = datetime.date(2026, 11, 17)
+
+    @staticmethod
+    def tx(i, date, amount, cat="Courses", bill=None, kind="withdrawal"):
+        return {"id": i, "date": date, "type": kind, "amount": amount, "category": cat, "bill": bill, "description": f"t{i}"}
+
+    def history(self, current):
+        tx = self.tx
+        return {"2026-09": [tx(1, "2026-09-03", 20), tx(2, "2026-09-10", 25), tx(3, "2026-09-12", 22, bill="Netflix")],
+                "2026-10": [tx(4, "2026-10-03", 18), tx(5, "2026-10-12", 22, bill="Netflix")], "2026-11": current}
+
+    def test_an_expense_far_above_the_usual_is_flagged_only_when_recent(self):
+        tx = self.tx
+        got = app.alerts_from(self.history([tx(6, "2026-11-10", 120), tx(7, "2026-11-01", 900), tx(8, "2026-11-12", 40)]), self.TODAY)
+        self.assertEqual([(u["description"], u["usual"]) for u in got["unusual"]], [("t6", 22.0)])
+
+    def test_few_samples_or_small_amounts_are_not_unusual(self):
+        tx = self.tx
+        self.assertEqual(app.alerts_from({"2026-11": [tx(1, "2026-11-10", 400)]}, self.TODAY)["unusual"], [])
+        self.assertEqual(app.alerts_from(self.history([tx(6, "2026-11-10", 49)]), self.TODAY)["unusual"], [])
+
+    def test_a_subscription_price_change_shows_for_a_while(self):
+        got = app.alerts_from(self.history([self.tx(8, "2026-11-14", 30, bill="Netflix")]), self.TODAY)
+        self.assertEqual(got["price_changes"], [{"name": "Netflix", "before": 22, "now": 30, "date": "2026-11-14"}])
+        same = app.alerts_from(self.history([self.tx(8, "2026-11-14", 22.1, bill="Netflix")]), self.TODAY)
+        self.assertEqual(same["price_changes"], [])
+        old = app.alerts_from(self.history([]), self.TODAY)  # the change of October is over by now
+        self.assertEqual(old["price_changes"], [])
+
+    def test_uncategorised_counts_spending_and_income_but_not_transfers(self):
+        tx = self.tx
+        got = app.alerts_from(self.history([tx(7, "2026-11-12", 14, cat=None), tx(8, "2026-11-13", 6.5, cat=None, kind="deposit"),
+                                             tx(9, "2026-11-15", 500, cat=None, kind="transfer")]), self.TODAY)
+        self.assertEqual(got["uncategorised"], {"count": 2, "amount": 20.5, "month": "2026-11"})
+        self.assertEqual(app.alerts_from(self.history([]), self.TODAY)["uncategorised"], {"count": 0, "amount": 0.0, "month": None})
 
 
 class HttpTests(unittest.TestCase):

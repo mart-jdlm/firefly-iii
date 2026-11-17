@@ -3,7 +3,7 @@
    here and read as a live binding everywhere else. */
 export let range = 12, all = null, sel = 0, page = 'overview', offline = false;
 export const charts = {};
-export const memo = { tax: null, tx: {}, bud: {}, flow: {}, bills: null, pea: null, goals: null };
+export const memo = { alerts: null, tax: null, tx: {}, bud: {}, flow: {}, bills: null, pea: null, goals: null };
 // txf.cat / txf.bud: '' = any, NONE = transactions without a category / budget
 export const NONE = '__none__';
 export const txf = { q: '', cat: '', bud: '', type: 'all' };

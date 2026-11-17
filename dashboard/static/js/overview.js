@@ -3,8 +3,8 @@ import { json } from './api.js';
 import { GROUPS } from './consts.js';
 import { $, css, el, mk, pill } from './dom.js';
 import { eur, mlabel, sign } from './format.js';
-import { all, charts, memo, page, range, shown } from './state.js';
-import { computeAlerts, computeInsights } from './logic.js';
+import { NONE, all, charts, gotoTransactions, memo, page, range, setSel, shown } from './state.js';
+import { computeAlerts, computeInsights, extraAlerts } from './logic.js';
 
 function setHero(i){
  const rows=shown(),r=rows[i],ref=rows[0].net_worth.total-rows[0].change;
@@ -47,12 +47,20 @@ async function renderInsights(){
 
 /* alerts: budgets near or over their limit, bills due soon, thin safety margin */
 async function renderAlerts(){
- let budgets=null,bills=null;
+ let budgets=null,bills=null,extra=null;
  try{const month=all.months[all.months.length-1].month;budgets=memo.bud[month]||(memo.bud[month]=await json('/api/budgets?month='+month))}catch(e){}
  try{bills=memo.bills||(memo.bills=await json('/api/bills'))}catch(e){}
+ try{extra=memo.alerts||(memo.alerts=await json('/api/alerts'))}catch(e){}
  const{items,budgetCount}=computeAlerts({budgets,bills,months:all.months,now:new Date()});
+ items.push(...extraAlerts(extra));
  document.querySelectorAll('[data-page=budget] .badge').forEach(b=>{b.hidden=!budgetCount;b.textContent=budgetCount});
  if(page!=='overview')return;
  $('alerts').hidden=!items.length;
- $('alertList').replaceChildren(...items.map(([e,cls,title,text])=>el('div',{className:'item alert '+cls},[el('div',{className:'bubble',textContent:e}),el('span',{className:'name'},[el('b',{textContent:title}),el('small',{textContent:text})])])));
+ $('alertList').replaceChildren(...items.map(([e,cls,title,text,link])=>el('div',link?{className:'item alert click '+cls,title:'Voir les transactions',tabIndex:0,onclick:()=>openLink(link),onkeydown:ev=>{if(ev.key==='Enter')openLink(link)}}:{className:'item alert '+cls},[el('div',{className:'bubble',textContent:e}),el('span',{className:'name'},[el('b',{textContent:title}),el('small',{textContent:text})])])));
+}
+
+function openLink({month,cat,q}){
+ const i=all.months.findIndex(m=>m.month===month);
+ if(i>=0)setSel(i);
+ gotoTransactions({cat:cat==='none'?NONE:cat||'',q:q||''});
 }

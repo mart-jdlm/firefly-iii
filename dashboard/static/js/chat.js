@@ -41,7 +41,7 @@ async function chatAsk(text){
   const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);
   chatSession=j.session;w.className='m bot';w.innerHTML=fmt(j.answer||'(pas de réponse)');
   // the assistant may have changed data (categories, goals, PEA): drop what is cached
-  memo.tx={};memo.bud={};memo.flow={};memo.bills=null;memo.pea=null;memo.goals=null;
+  memo.tx={};memo.bud={};memo.flow={};memo.bills=null;memo.alerts=null;memo.tax=null;memo.pea=null;memo.goals=null;
  }catch(e){w.className='m err';w.textContent='Erreur : '+e.message}
  chatBusy=false;$('chatSend').disabled=false;msgs.scrollTop=msgs.scrollHeight;
 }
