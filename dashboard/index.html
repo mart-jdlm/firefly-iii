@@ -124,7 +124,8 @@
     </div>
     <section class="card mb"><h3>Valeur et versements</h3><p class="note">L'écart entre les deux courbes est ta plus-value (ou moins-value).</p>
      <div class="chart"><canvas id="cPea" role="img" aria-label="Valeur du PEA et versements cumulés"></canvas></div>
-     <div class="legend"><span><i style="background:var(--accent)"></i>Valeur</span><span><i style="background:var(--c7)"></i>Versements</span></div></section>
+     <div class="legend"><span><i style="background:var(--accent)"></i>Valeur</span><span><i style="background:var(--c7)"></i>Versements</span><span id="iLegB" hidden><i style="background:var(--c3)"></i>Même argent en <span id="iLegBn"></span></span></div></section>
+    <section class="card mb" id="iPerf"><h3>Performance</h3><p class="note" id="iPerfNote">&nbsp;</p><div class="list" id="iPerfRows"></div></section>
     <div class="two" id="iHoldings">
      <section class="card"><h3>Positions</h3><p class="note" id="iNote">&nbsp;</p><div class="list" id="iPositions"></div></section>
      <section class="card"><h3>Répartition</h3><p class="note">&nbsp;</p>

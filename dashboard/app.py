@@ -334,6 +334,30 @@ def yahoo_quote(symbol: str) -> dict | None:
         return None
 
 
+BENCHMARK = os.environ.get("PEA_BENCHMARK", "CW8.PA")
+BENCHMARK_LABEL = os.environ.get("PEA_BENCHMARK_LABEL", "MSCI World")
+
+
+def yahoo_history(symbol: str, since: str) -> list[list] | None:
+    """Daily closes [[date, price], ...] of a euro Yahoo Finance symbol from `since` (YYYY-MM-DD)
+    to now; None when the quotes cannot be had."""
+    start = int(dt.datetime.combine(dt.date.fromisoformat(since) - dt.timedelta(days=7), dt.time(), dt.timezone.utc).timestamp())
+    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
+           f"?period1={start}&period2={int(time.time()) + 86400}&interval=1d")
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            result = json.load(response)["chart"]["result"][0]
+        if result["meta"]["currency"] != "EUR":
+            return None
+        closes = result["indicators"]["quote"][0]["close"]
+        days = [[dt.datetime.fromtimestamp(ts, dt.timezone.utc).date().isoformat(), round(close, 4)]
+                for ts, close in zip(result["timestamp"], closes) if close]
+        return days or None
+    except (urllib.error.URLError, KeyError, TypeError, IndexError, ValueError):
+        return None
+
+
 def read_positions() -> list[dict] | None:
     """Lines of the PEA positions file (symbol, quantity, label), None without the file."""
     try:
@@ -354,11 +378,17 @@ def read_positions() -> list[dict] | None:
     return lines
 
 
+def benchmark_data(flows: list[dict]) -> dict | None:
+    prices = yahoo_history(BENCHMARK, flows[0]["date"]) if flows else None
+    return {"symbol": BENCHMARK, "label": BENCHMARK_LABEL, "prices": prices} if prices else None
+
+
 def pea_data() -> dict:
     accounts = [a for a in api_all("/accounts", {"type": "asset"})
                 if a["attributes"]["name"].startswith(INVESTMENT_PREFIX)]
     balance = money(sum(float(a["attributes"]["current_balance"]) for a in accounts))
     monthly: dict[str, float] = {}
+    flows: list[dict] = []
     for account in accounts:
         for group in api_all(f"/accounts/{account['id']}/transactions", {"type": "all"}):
             for t in group["attributes"]["transactions"]:
@@ -373,6 +403,8 @@ def pea_data() -> dict:
                     continue
                 month = t["date"][:7]
                 monthly[month] = round(monthly.get(month, 0) + amount, 2)
+                flows.append({"date": t["date"][:10], "amount": money(amount)})
+    flows.sort(key=lambda f: f["date"])
     invested = money(sum(monthly.values()))
 
     positions, cash = [], 0.0
@@ -394,7 +426,8 @@ def pea_data() -> dict:
     else:
         cash = balance
     return {"has_file": lines is not None, "balance": balance, "invested": invested,
-            "contributions": monthly, "positions": positions, "cash": money(cash)}
+            "contributions": monthly, "flows": flows, "positions": positions, "cash": money(cash),
+            "benchmark": benchmark_data(flows)}
 
 
 def read_goal_file() -> list[dict]:

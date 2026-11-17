@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, matches, periodRange, project, runway, sortBills, yoyRows } from '../../static/js/logic.js';
+import { billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, matches, periodRange, project, simulate, twr, xirr, runway, sortBills, yoyRows } from '../../static/js/logic.js';
 
 const plain = s => s.replace(/[  ]/g, ' ');
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} is not ${b}`);
@@ -261,4 +261,41 @@ test('periodRange: presets end today and the month presets start on the first of
 test('periodRange crosses year boundaries', () => {
   assert.deepEqual(periodRange('3m', new Date(2026, 0, 5)), ['2025-11-01', '2026-01-05']);
   assert.deepEqual(periodRange('30d', new Date(2026, 0, 5)), ['2025-12-07', '2026-01-05']);
+});
+
+test('xirr: one deposit that grows 10 % in a year is 10 %', () => {
+  const r = xirr([{ date: '2025-01-01', amount: 1000 }], 1100, '2026-01-01');
+  assert.ok(Math.abs(r - 0.10) < 1e-4, String(r));
+});
+
+test('xirr: a later deposit is held for less time, and a loss is negative', () => {
+  const r = xirr([{ date: '2025-01-01', amount: 1000 }, { date: '2025-07-02', amount: 1000 }], 2100, '2026-01-01');
+  assert.ok(r > 0.06 && r < 0.075, String(r)); // 100 earned on money held 1 and 0.5 year: above the plain 5 %
+  assert.ok(xirr([{ date: '2025-01-01', amount: 1000 }], 900, '2026-01-01') < 0);
+});
+
+test('xirr: under 90 days, no deposits or a null total give null', () => {
+  assert.equal(xirr([{ date: '2026-01-01', amount: 1000 }], 1100, '2026-02-15'), null);
+  assert.equal(xirr([], 100, '2026-06-01'), null);
+  assert.equal(xirr([{ date: '2025-01-01', amount: 100 }, { date: '2025-02-01', amount: -100 }], 5, '2026-06-01'), null);
+});
+
+test('twr ignores deposits: money added with no gain is a 0 % return', () => {
+  const v = [{ month: '2026-01', value: 1000 }, { month: '2026-02', value: 1500 }, { month: '2026-03', value: 1500 }];
+  assert.ok(Math.abs(twr(v, [{ date: '2026-01-10', amount: 1000 }, { date: '2026-02-10', amount: 500 }])) < 1e-9);
+});
+
+test('twr chains the monthly returns', () => {
+  const v = [{ month: '2026-01', value: 1000 }, { month: '2026-02', value: 1100 }, { month: '2026-03', value: 1210 }];
+  assert.ok(Math.abs(twr(v, [{ date: '2026-01-05', amount: 1000 }]) - 0.21) < 1e-9);
+  assert.equal(twr([{ month: '2026-01', value: 0 }], []), null);
+});
+
+test('simulate buys at the first close on or after the deposit and values at the last close', () => {
+  const prices = [['2026-01-02', 100], ['2026-01-05', 110], ['2026-02-02', 120]];
+  const at = simulate([{ date: '2026-01-03', amount: 220 }], prices);
+  assert.equal(at('2026-01-02'), 0);                    // before the deposit
+  assert.ok(Math.abs(at('2026-01-31') - 220) < 1e-9);   // 2 units bought at 110, still 110
+  assert.ok(Math.abs(at('2026-02-10') - 240) < 1e-9);   // 2 units at 120
+  assert.equal(simulate([], prices)('2026-02-10'), 0);
 });

@@ -137,6 +137,54 @@ export function buildCsv(transactions) {
   return '﻿' + lines.join('\r\n');
 }
 
+const dayNum = iso => Date.parse(iso + 'T12:00:00Z') / DAY;
+
+/** Money-weighted yearly return (XIRR) of a PEA: `flows` are [{date, amount}] with deposits
+ *  positive, and the account is worth `endValue` on `endDate`. Returns a rate (0.05 = 5 %), or null
+ *  when the history is under 90 days (a yearly figure would mean nothing), has no deposit or has no
+ *  solution. */
+export function xirr(flows, endValue, endDate) {
+  if (!flows.length || flows.reduce((a, f) => a + f.amount, 0) <= 0) return null;
+  const t0 = dayNum(flows[0].date), end = dayNum(endDate) - t0;
+  if (end < 90) return null;
+  const npv = r => flows.reduce((a, f) => a - f.amount / Math.pow(1 + r, (dayNum(f.date) - t0) / 365), 0) + endValue / Math.pow(1 + r, end / 365);
+  let lo = -0.95, hi = 10;
+  if (npv(lo) * npv(hi) > 0) return null;
+  for (let i = 0; i < 200; i++) { const mid = (lo + hi) / 2; if (npv(lo) * npv(mid) <= 0) hi = mid; else lo = mid; }
+  return (lo + hi) / 2;
+}
+
+/** Performance of the investments themselves, without the effect of deposits: `values` are the
+ *  account's value at each month end, [{month, value}], `flows` as above. Each month is a modified
+ *  Dietz return (deposits count half a month; the first month counts them whole), chained. Returns
+ *  the cumulative return (0.03 = 3 %) or null when no month can be measured. */
+export function twr(values, flows) {
+  const net = {};
+  flows.forEach(f => { net[f.date.slice(0, 7)] = (net[f.date.slice(0, 7)] || 0) + f.amount; });
+  let acc = 1, measured = 0, prev = 0;
+  values.forEach(({ month, value }) => {
+    const f = net[month] || 0, base = prev > 0 ? prev + f / 2 : f;
+    if (base > 0) { acc *= 1 + (value - prev - f) / base; measured++; }
+    prev = value;
+  });
+  return measured ? acc - 1 : null;
+}
+
+/** What the same deposits would be worth in an index: `prices` are daily closes [[date, price]]
+ *  (oldest first). Each deposit buys at the first close on or after its date. Returns valueAt(date)
+ *  = units held that day × the last close up to that day (0 before the first deposit or close). */
+export function simulate(flows, prices) {
+  const buys = flows.map(f => {
+    const p = prices.find(([d]) => d >= f.date) || prices[prices.length - 1];
+    return { date: f.date, units: f.amount / p[1] };
+  });
+  return date => {
+    let close = null;
+    for (const [d, c] of prices) { if (d > date) break; close = c; }
+    return close === null ? 0 : buys.filter(b => b.date <= date).reduce((a, b) => a + b.units, 0) * close;
+  };
+}
+
 export const PERIODS = [['month', 'Mois sélectionné'], ['30d', '30 derniers jours'], ['3m', '3 derniers mois'], ['6m', '6 derniers mois'],
   ['ytd', "Depuis janvier"], ['12m', '12 derniers mois'], ['custom', 'Dates précises…']];
 

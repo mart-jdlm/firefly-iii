@@ -6,6 +6,7 @@ tests run the real Handler on a local port.
 import datetime
 import gzip
 import http.client
+import io
 import json
 import os
 import sys
@@ -512,6 +513,36 @@ class SearchTests(unittest.TestCase):
     def test_quotes_cannot_break_out_of_the_query(self):
         _, api = self.search('a" type:transfer "b', [])
         self.assertEqual(api.call_args.args[1]["query"], 'description_contains:"a type:transfer b"')
+
+
+class BenchmarkTests(unittest.TestCase):
+    def history(self, payload):
+        response = mock.MagicMock()
+        response.__enter__.return_value = io.BytesIO(json.dumps(payload).encode())
+        with mock.patch.object(app.urllib.request, "urlopen", return_value=response):
+            return app.yahoo_history("CW8.PA", "2026-09-10")
+
+    def chart(self, currency="EUR"):
+        return {"chart": {"result": [{"meta": {"currency": currency}, "timestamp": [1788000000, 1788086400, 1788172800],
+                                      "indicators": {"quote": [{"close": [100.123456, None, 101.5]}]}}]}}
+
+    def test_keeps_dated_closes_and_skips_missing_ones(self):
+        got = self.history(self.chart())
+        self.assertEqual([c for _, c in got], [100.1235, 101.5])
+        self.assertRegex(got[0][0], r"^\d{4}-\d{2}-\d{2}$")
+
+    def test_other_currencies_and_bad_answers_give_none(self):
+        self.assertIsNone(self.history(self.chart("USD")))
+        self.assertIsNone(self.history({"chart": {"result": None}}))
+
+    def test_no_deposit_means_no_benchmark_and_no_call(self):
+        with mock.patch.object(app, "yahoo_history") as call:
+            self.assertIsNone(app.benchmark_data([]))
+            call.assert_not_called()
+            call.return_value = [["2026-09-10", 1.0]]
+            got = app.benchmark_data([{"date": "2026-09-28", "amount": 10.0}])
+        self.assertEqual((got["symbol"], got["prices"]), (app.BENCHMARK, [["2026-09-10", 1.0]]))
+        self.assertEqual(call.call_args.args[1], "2026-09-28")
 
 
 class HttpTests(unittest.TestCase):
