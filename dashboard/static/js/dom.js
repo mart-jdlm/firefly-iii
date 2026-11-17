@@ -6,7 +6,7 @@ export const $=id=>document.getElementById(id);
 
 export const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
-export function el(tag,props={},kids=[]){const e=document.createElement(tag);Object.assign(e,props);kids.forEach(k=>e.append(k));return e}
+export function el(tag,props={},kids=[]){const e=document.createElement(tag);for(const k in props){if(k.startsWith('aria-'))e.setAttribute(k,props[k]);else e[k]=props[k]}kids.forEach(k=>e.append(k));return e}
 
 export function mk(id,cfg){if(charts[id])charts[id].destroy();charts[id]=new Chart($(id),cfg)}
 

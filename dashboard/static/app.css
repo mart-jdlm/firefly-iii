@@ -26,7 +26,7 @@ button,input,select{font:inherit;color:inherit}
 svg.i,#nav svg,.tabbar svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .side-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 6px;font-size:12px;color:var(--mute)}
 .content{min-width:0;padding:22px 28px calc(48px + env(safe-area-inset-bottom));max-width:1180px;width:100%}
-.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 0 20px;flex-wrap:wrap}
+.bar{display:flex;align-items:center;justify-content:flex-start;gap:12px;margin:2px 0 20px;flex-wrap:wrap}
 .bar h1{font-size:24px;margin:0;font-weight:750;letter-spacing:-.02em}
 .nav{display:flex;align-items:center;gap:6px}
 .nav b{min-width:150px;text-align:center;text-transform:capitalize;font-size:15px}
@@ -303,3 +303,6 @@ body.priv #sankey .link{pointer-events:none}
 .md-box .fld input:focus,.md-box .fld select:focus{border-color:var(--accent)}
 .md-box .big-in input{height:52px;font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
 .md-box .edit-row{margin-top:12px}
+.md-box .seg2 button[aria-pressed=true]{background:var(--accent);color:#fff}
+#iPerfRows .vs{width:auto;white-space:nowrap;text-align:right}
+.icon{display:inline-flex;align-items:center;justify-content:center}

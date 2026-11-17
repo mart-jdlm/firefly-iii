@@ -23,11 +23,11 @@ const bullets = (items, emoji) => el('div', { className: 'list insights' }, item
 function tile(tag, color, value, pillText, good) {
   const dot = el('span', { className: 'dot' }); dot.style.background = color;
   return el('div', { className: 'card tile' }, [el('div', { className: 'tag' }, [dot, tag]), el('div', { className: 'kpi', textContent: value }),
-    el('span', { className: 'pill' + (good === true ? ' up' : good === false ? ' down' : ''), textContent: pillText || ' ' })]);
+    ...(pillText ? [el('span', { className: 'pill' + (good === true ? ' up' : good === false ? ' down' : ''), textContent: pillText })] : [])]);
 }
 
 function categories(f, c) {
-  const rows = [...f.categories].sort((a, b) => b.amount - a.amount), max = rows.length ? rows[0].amount : 1;
+  const rows = f.categories.filter(r => r.amount >= 0.005).sort((a, b) => b.amount - a.amount), max = rows.length ? rows[0].amount : 1;
   const out = rows.flatMap((r, i) => {
     const d = r.average_3_months > 0 ? (r.amount - r.average_3_months) / r.average_3_months * 100 : null;
     const dot = el('span', { className: 'dot' }); dot.style.background = css(CATS[i % CATS.length]);
@@ -55,7 +55,7 @@ function budgets(f) {
 function netWorth(f) {
   const rows = f.net_worth_by_month || [];
   if (rows.length < 2) return null;
-  const c = el('canvas', { id: 'cRvNw', role: 'img', ariaLabel: 'Patrimoine net sur les derniers mois' });
+  const c = el('canvas', { id: 'cRvNw', role: 'img', 'aria-label': 'Patrimoine net sur les derniers mois' });
   queueMicrotask(() => {
     if (!c.isConnected) return;
     const line = css('--accent');
