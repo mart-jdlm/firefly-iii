@@ -13,6 +13,7 @@ import { renderReview } from './review.js';
 import { all, hooks, memo, nav, offline, page, resetFilters, sel, setAll, setMonth, setOffline, setPage, setRange, setSel } from './state.js';
 import { renderTransactions } from './transactions.js';
 import './add.js';
+import { markMore } from './tabs.js';
 import './privacy.js';
 import './search.js';
 
@@ -22,8 +23,8 @@ function route(){
  if(page==='transactions'&&was!=='transactions'&&!nav.keep)resetFilters();
  nav.keep=false;
  document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!=='p-'+page);
- document.querySelectorAll('#nav a,#tabbar a').forEach(a=>a.classList.toggle('on',a.dataset.page===page));
- document.querySelector('#tabbar a.on')?.scrollIntoView({inline:'center',block:'nearest'});
+ document.querySelectorAll('#nav a,#tabbar a,#moreSheet a').forEach(a=>a.classList.toggle('on',a.dataset.page===page));
+ markMore(page);
  $('pageTitle').textContent=PAGES[page];document.title=PAGES[page]+' · Cairn';
  $('monthnav').hidden=!(page==='budget'||page==='transactions');
  window.scrollTo(0,0);
@@ -75,7 +76,6 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&all&&Date
 
 addEventListener('online',()=>{if(all)load(false,true)});
 
-$('tabbar').replaceChildren(...[...document.querySelectorAll('#nav a')].map(a=>{const c=a.cloneNode(true);c.querySelector('span').textContent={overview:'Accueil',assets:'Patrimoine',budget:'Budget',transactions:'Opérations',invest:'Placements',future:'Avenir',recurring:'Récurrent',review:'Bilan'}[a.dataset.page];return c}));
 
 $('ranges').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!all)return;setRange(+b.dataset.m);
  document.querySelectorAll('#ranges button').forEach(x=>x.setAttribute('aria-pressed',x===b));renderPage()});

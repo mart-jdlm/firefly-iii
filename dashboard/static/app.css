@@ -328,3 +328,18 @@ a:focus-visible,button:focus-visible,[tabindex]:focus-visible,select:focus-visib
  .toolbar .dates{flex:1 1 100%}.toolbar .dates input{flex:1;width:auto}
  .toolbar .seg2{max-width:100%;overflow-x:auto}
 }
+/* mobile tab bar: four main tabs and "Plus" with the other pages in a sheet */
+@media(max-width:760px){
+ .tabbar{overflow:visible;justify-content:space-around;gap:0;z-index:45}
+ .tabbar a,.tabbar button.more{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:6px 2px;border-radius:12px;color:var(--mute);background:none;border:0;cursor:pointer;text-decoration:none}
+ .tabbar a.on,.tabbar button.more.on,.tabbar button.more[aria-expanded=true]{color:var(--accent)}
+ .tabbar button.more svg{fill:currentColor;stroke:none;width:20px;height:20px}
+ .sheet{position:fixed;inset:0;z-index:40;background:#0006;display:flex;align-items:flex-end}
+ .sheet-box{width:100%;background:var(--card);border-radius:20px 20px 0 0;padding:14px 14px calc(84px + env(safe-area-inset-bottom));display:grid;grid-template-columns:1fr 1fr;gap:10px;animation:sheetin .2s ease-out}
+ .sheet-box a{display:flex;align-items:center;gap:12px;padding:16px;border-radius:14px;background:var(--soft);color:var(--fg);text-decoration:none;font-weight:600;font-size:15px}
+ .sheet-box a.on{background:var(--accent2);color:var(--accent)}
+ .sheet-box svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
+ @keyframes sheetin{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+}
+@media(min-width:761px){.sheet{display:none!important}}
+@media(prefers-reduced-motion:reduce){.sheet-box{animation:none}}
