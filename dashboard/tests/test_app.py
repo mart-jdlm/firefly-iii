@@ -543,6 +543,9 @@ class SearchTests(unittest.TestCase):
 
 
 class BenchmarkTests(unittest.TestCase):
+    def setUp(self):
+        app._last_good.clear()
+
     def history(self, payload):
         response = mock.MagicMock()
         response.__enter__.return_value = io.BytesIO(json.dumps(payload).encode())
@@ -698,6 +701,43 @@ class SuggestionTests(unittest.TestCase):
         with mock.patch.object(app, "api", side_effect=urllib.error.URLError("down")):
             self.assertEqual(app.still_uncategorised(rows, "2026-10-01", "2026-10-31"), rows)
         self.assertEqual(app.still_uncategorised([], "2026-10-01", "2026-10-31"), [])
+
+
+class YahooFallbackTests(unittest.TestCase):
+    def setUp(self):
+        app._last_good.clear()
+
+    @staticmethod
+    def answer(price, currency="EUR"):
+        response = mock.MagicMock()
+        payload = {"chart": {"result": [{"meta": {"currency": currency, "regularMarketPrice": price, "chartPreviousClose": price - 1}}]}}
+        response.__enter__.return_value = io.BytesIO(json.dumps(payload).encode())
+        return response
+
+    def test_the_second_host_is_tried_when_the_first_fails(self):
+        calls = []
+        def fake(request, timeout):
+            calls.append(request.full_url)
+            if "query1" in request.full_url:
+                raise urllib.error.URLError("down")
+            return self.answer(100.0)
+        with mock.patch.object(app.urllib.request, "urlopen", fake):
+            self.assertEqual(app.yahoo_quote("CW8.PA"), {"price": 100.0, "previous": 99.0})
+        self.assertEqual(len(calls), 2); self.assertIn("query2", calls[1])
+
+    def test_when_yahoo_is_down_the_last_price_comes_back_marked_with_its_day(self):
+        with mock.patch.object(app.urllib.request, "urlopen", return_value=self.answer(100.0)):
+            app.yahoo_quote("CW8.PA")
+        with mock.patch.object(app.urllib.request, "urlopen", side_effect=urllib.error.URLError("down")):
+            got = app.yahoo_quote("CW8.PA")
+            self.assertEqual((got["price"], got["as_of"]), (100.0, datetime.date.today().isoformat()))
+            self.assertIsNone(app.yahoo_quote("OTHER.PA"), "nothing known about a symbol never seen")
+
+    def test_a_fresh_answer_has_no_as_of_and_a_non_euro_one_is_refused(self):
+        with mock.patch.object(app.urllib.request, "urlopen", return_value=self.answer(100.0)):
+            self.assertNotIn("as_of", app.yahoo_quote("CW8.PA"))
+        with mock.patch.object(app.urllib.request, "urlopen", return_value=self.answer(100.0, "USD")):
+            self.assertIsNone(app.yahoo_quote("SPY"))
 
 
 class HttpTests(unittest.TestCase):

@@ -321,43 +321,80 @@ def bills_data() -> dict:
     return {"bills": bills, "upcoming": sorted(upcoming, key=lambda u: u["date"]), "piggies": piggies}
 
 
+YAHOO_HOSTS = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
+_last_good: dict[str, tuple[str, object]] = {}  # what Yahoo last answered, per request: (date, value)
+_last_good_lock = threading.Lock()
+
+
+def yahoo_chart(symbol: str, params: str) -> dict | None:
+    """The `result` of Yahoo Finance's chart API for a symbol, trying both of its hosts; None when
+    neither answers properly. Yahoo has no official API and fails now and then."""
+    for host in YAHOO_HOSTS:
+        url = f"https://{host}/v8/finance/chart/{urllib.parse.quote(symbol)}?{params}"
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.load(response)["chart"]["result"][0]
+        except (urllib.error.URLError, KeyError, TypeError, IndexError, ValueError):
+            continue
+    return None
+
+
+def remember(key: str, value) -> None:
+    with _last_good_lock:
+        _last_good[key] = (dt.date.today().isoformat(), value)
+
+
+def last_good(key: str) -> tuple[object, str] | None:
+    with _last_good_lock:
+        old = _last_good.get(key)
+    return (old[1], old[0]) if old else None
+
+
 def yahoo_quote(symbol: str) -> dict | None:
-    """Last price and previous close of a Yahoo Finance symbol, only when quoted in euros."""
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?range=1d&interval=1d"
-    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    """Last price and previous close of a Yahoo Finance symbol, only when quoted in euros. When
+    Yahoo cannot be reached the last price seen is returned, marked with the day it is from
+    ("as_of"), so the PEA is not undervalued by a missing line."""
+    result = yahoo_chart(symbol, "range=1d&interval=1d")
+    if result is None:
+        old = last_good("quote" + symbol)
+        return {**old[0], "as_of": old[1]} if old else None
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            meta = json.load(response)["chart"]["result"][0]["meta"]
+        meta = result["meta"]
         if meta["currency"] != "EUR":
             return None
-        return {"price": meta["regularMarketPrice"],
-                "previous": meta.get("chartPreviousClose") or meta.get("previousClose")}
-    except (urllib.error.URLError, KeyError, TypeError, IndexError, ValueError):
+        quote = {"price": meta["regularMarketPrice"],
+                 "previous": meta.get("chartPreviousClose") or meta.get("previousClose")}
+    except (KeyError, TypeError):
         return None
-
-
-BENCHMARK = os.environ.get("PEA_BENCHMARK", "CW8.PA")
-BENCHMARK_LABEL = os.environ.get("PEA_BENCHMARK_LABEL", "MSCI World")
+    remember("quote" + symbol, quote)
+    return quote
 
 
 def yahoo_history(symbol: str, since: str) -> list[list] | None:
     """Daily closes [[date, price], ...] of a euro Yahoo Finance symbol from `since` (YYYY-MM-DD)
-    to now; None when the quotes cannot be had."""
+    to now; the last good history when Yahoo cannot be reached, None when there is none."""
     start = int(dt.datetime.combine(dt.date.fromisoformat(since) - dt.timedelta(days=7), dt.time(), dt.timezone.utc).timestamp())
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}"
-           f"?period1={start}&period2={int(time.time()) + 86400}&interval=1d")
-    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    key = f"history{symbol}{since}"
+    result = yahoo_chart(symbol, f"period1={start}&period2={int(time.time()) + 86400}&interval=1d")
+    if result is None:
+        old = last_good(key)
+        return old[0] if old else None
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            result = json.load(response)["chart"]["result"][0]
         if result["meta"]["currency"] != "EUR":
             return None
         closes = result["indicators"]["quote"][0]["close"]
         days = [[dt.datetime.fromtimestamp(ts, dt.timezone.utc).date().isoformat(), round(close, 4)]
                 for ts, close in zip(result["timestamp"], closes) if close]
-        return days or None
-    except (urllib.error.URLError, KeyError, TypeError, IndexError, ValueError):
+    except (KeyError, TypeError, IndexError, ValueError):
         return None
+    if days:
+        remember(key, days)
+    return days or None
+
+
+BENCHMARK = os.environ.get("PEA_BENCHMARK", "CW8.PA")
+BENCHMARK_LABEL = os.environ.get("PEA_BENCHMARK_LABEL", "MSCI World")
 
 
 def read_positions() -> list[dict] | None:
@@ -442,6 +479,7 @@ def pea_data() -> dict:
             positions.append({
                 "symbol": line["symbol"], "label": line["label"], "quantity": line["quantity"],
                 "price": price, "value": money(line["quantity"] * price) if price else None,
+                "as_of": quote.get("as_of") if quote else None,
                 "day": round((price / previous - 1) * 100, 2) if price and previous else None,
             })
     else:

@@ -41,7 +41,7 @@ export async function renderInvest(){
  $('iEmpty').hidden=!empty;$('iHoldings').hidden=empty;
  $('iNote').textContent=empty?'Aucun titre pour le moment':`${d.positions.length} ligne${d.positions.length>1?'s':''} · cours Yahoo Finance`;
  const wt=value||1,rowsEl=d.positions.map(p=>{
-  const sub=el('small',{textContent:`${p.quantity.toLocaleString('fr-FR')} × ${p.price===null?'cours indisponible':eur2(p.price)}${p.label?' · '+p.label:''}`});
+  const sub=el('small',{textContent:`${p.quantity.toLocaleString('fr-FR')} × ${p.price===null?'cours indisponible':eur2(p.price)+(p.as_of?` (cours du ${p.as_of.slice(8)}/${p.as_of.slice(5,7)})`:'')}${p.label?' · '+p.label:''}`});
   const day=el('span',{className:'vs'+(p.day===null?'':p.day>0?' up':p.day<0?' down':''),textContent:p.day===null?'':`${p.day>0?'+':p.day<0?'−':''}${Math.abs(p.day).toFixed(2).replace('.',',')} %`});day.style.width='64px';
   return el('div',{className:'item'},[bubble(p.symbol),el('span',{className:'name'},[p.symbol,sub]),day,el('span',{className:'amt fix',textContent:p.value===null?'—':eur2(p.value)})]);
  });
