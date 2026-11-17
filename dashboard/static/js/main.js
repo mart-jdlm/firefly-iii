@@ -11,6 +11,7 @@ import { renderOverview } from './overview.js';
 import { renderRecurring } from './recurring.js';
 import { all, hooks, memo, offline, page, sel, setAll, setMonth, setOffline, setPage, setRange, setSel } from './state.js';
 import { renderTransactions } from './transactions.js';
+import './privacy.js';
 import './search.js';
 
 function route(){

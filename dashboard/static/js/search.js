@@ -6,12 +6,14 @@ import { PAGES } from './consts.js';
 import { all, gotoBudget, gotoCategory, gotoTransactions, memo, setSel } from './state.js';
 import { chatToggle } from './chat.js';
 import { matches } from './logic.js';
+import { togglePrivate } from './privacy.js';
 
 let root = null, input, list, items = [], active = 0, seq = 0, timer = 0, opener = null;
 
 const go = hash => () => { location.hash = hash; };
 const actions = [
   ['⟳', 'Actualiser les chiffres', () => $('refresh').click()],
+  ['🙈', 'Masquer ou afficher les montants', togglePrivate],
   ['💬', "Ouvrir l'assistant", () => chatToggle(true)],
 ];
 
