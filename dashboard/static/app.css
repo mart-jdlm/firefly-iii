@@ -214,3 +214,40 @@ small.down{color:var(--down)}
 
 .gact{flex-wrap:wrap;align-items:center}.mini{width:110px;height:32px;border:1px solid var(--line);background:var(--soft);border-radius:10px;padding:0 10px;outline:none}.mini:focus{border-color:var(--accent)}
 .gact small{color:var(--mute);font-size:12px}
+
+/* ---- loading, errors, offline, alerts, comparisons ---- */
+.skel{height:48px;border-radius:12px;margin:8px 0;background:linear-gradient(90deg,var(--soft) 25%,var(--line) 50%,var(--soft) 75%);background-size:200% 100%;animation:skel 1.3s linear infinite}
+@keyframes skel{to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.skel{animation:none}}
+body.loading .kpi,body.loading .big{opacity:.45;transition:opacity .2s}
+.empty .btn{margin-left:8px}
+#offline{background:var(--warnbg);color:var(--warn);border-radius:14px;padding:10px 16px;margin-bottom:16px;font-weight:500;font-size:14px}
+#offline[hidden]{display:none}
+.badge{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--down);color:#fff;font:700 11px/18px system-ui,sans-serif;font-style:normal;text-align:center}
+.badge[hidden]{display:none}
+.tabbar a{position:relative}
+.tabbar .badge{position:absolute;top:2px;right:calc(50% - 22px);margin:0;min-width:16px;height:16px;font-size:10px;line-height:16px}
+.alert .name{white-space:normal}.alert .name small{display:block;color:var(--mute);font-size:12.5px}
+.alert.down .bubble{background:var(--downbg)}.alert.warn .bubble{background:var(--warnbg)}
+.yoy .item .vs{width:92px}
+.sep{font-size:12px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);padding:14px 0 4px;border-top:1px solid var(--line)}
+.mb.seg2,#bSort{margin-bottom:10px}
+
+/* ---- mobile review fixes ---- */
+.chat textarea{font-family:inherit;font-size:15px}
+@media(max-width:760px){
+ .tile{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:12px;row-gap:6px;padding:14px 18px}
+ .tile .tag{grid-area:1/1;margin:0}
+ .tile .kpi{grid-area:1/2/3/3;margin:0;font-size:26px;text-align:right}
+ .tile .pill{grid-area:2/1;justify-self:start;max-width:100%}
+ .tiles{gap:10px}
+ #billList .chip{display:none}
+}
+
+/* ---- assistant button: out of the way while reading ---- */
+.fab{transition:transform .25s ease,opacity .2s ease}
+.fab.away{transform:translateY(calc(100% + 110px));opacity:0;pointer-events:none}
+@media(prefers-reduced-motion:reduce){.fab{transition:none}}
+/* the last row of a page always clears the button (above the tab bar on a phone) */
+.content{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+@media(max-width:900px){.content{padding-bottom:calc(150px + env(safe-area-inset-bottom))}}

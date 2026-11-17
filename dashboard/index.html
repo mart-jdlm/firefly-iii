@@ -17,7 +17,7 @@
   <nav id="nav">
    <a href="#/overview" data-page="overview"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Vue d'ensemble</span></a>
    <a href="#/assets" data-page="assets"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="3"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M3 13h18"/></svg><span>Patrimoine</span></a>
-   <a href="#/budget" data-page="budget"><svg viewBox="0 0 24 24"><path d="M12 3v9h9a9 9 0 1 1-9-9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/></svg><span>Budget</span></a>
+   <a href="#/budget" data-page="budget"><svg viewBox="0 0 24 24"><path d="M12 3v9h9a9 9 0 1 1-9-9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/></svg><span>Budget</span><i class="badge" hidden></i></a>
    <a href="#/transactions" data-page="transactions"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span>Transactions</span></a>
    <a href="#/invest" data-page="invest"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg><span>Placements</span></a>
    <a href="#/future" data-page="future"><svg viewBox="0 0 24 24"><path d="M4 21V4"/><path d="M4 5h13l-2.5 4L17 13H4"/></svg><span>Avenir</span></a>
@@ -32,7 +32,8 @@
    <div class="nav" id="monthnav" hidden><button class="icon" id="prev" aria-label="Mois précédent">‹</button><b id="selLabel"></b><button class="icon" id="next" aria-label="Mois suivant">›</button></div>
    <button class="icon mobile-only" id="refreshM" title="Actualiser" aria-label="Actualiser">↻</button>
   </header>
-  <div id="err"></div>
+  <div id="err" role="alert"></div>
+  <div id="offline" role="status" hidden>Hors ligne : ces chiffres sont ceux de la dernière connexion.</div>
 
   <main id="main">
    <!-- Vue d'ensemble -->
@@ -46,9 +47,10 @@
       <button data-m="6" aria-pressed="false">6 mois</button><button data-m="12" aria-pressed="true">1 an</button><button data-m="24" aria-pressed="false">2 ans</button>
      </div>
     </div>
+    <section class="card mb" id="alerts" hidden><h3>Alertes</h3><div class="list" id="alertList"></div></section>
     <div class="two">
      <section class="card"><h3>Répartition</h3><div class="seg" id="seg"></div><div class="list" id="groups"></div></section>
-     <section class="card"><h3>À retenir</h3><div class="list insights" id="insights"><div class="empty">Chargement…</div></div></section>
+     <section class="card"><h3>À retenir</h3><div class="list insights" id="insights"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></section>
     </div>
    </section>
 
@@ -77,9 +79,10 @@
      <div class="card tile"><div class="tag"><span class="dot" style="background:var(--c2)"></span>Dépenses</div><div class="kpi" id="kSpend">—</div><span class="pill" id="dSpend">&nbsp;</span></div>
      <div class="card tile"><div class="tag"><span class="dot" style="background:var(--accent)"></span>Épargne</div><div class="kpi" id="kSave">—</div><span class="pill" id="dSave">&nbsp;</span></div>
     </div>
+    <section class="card mb" id="yoy" hidden><h3>Comparé à l'an dernier</h3><p class="note" id="yoyNote">&nbsp;</p><div class="list yoy" id="yoyRows"></div></section>
     <section class="card mb"><h3>Flux d'argent</h3><p class="note">D'où vient l'argent et où il va : revenus, budgets, puis catégories.</p>
      <div class="sankey-wrap"><svg id="sankey" role="img" aria-label="Diagramme des flux : revenus, budgets et catégories de dépenses"></svg></div></section>
-    <section class="card mb"><h3>Budgets du mois</h3><p class="note">Plafonds définis dans Firefly III.</p><div class="list" id="budgets"><div class="empty">Chargement…</div></div></section>
+    <section class="card mb"><h3>Budgets du mois</h3><p class="note">Plafonds définis dans Firefly III.</p><div class="list" id="budgets"><div class="skel"></div><div class="skel"></div></div></section>
     <div class="two">
      <section class="card"><h3>Dépenses par catégorie</h3><p class="note" id="spendNote">&nbsp;</p>
       <div class="donut-wrap"><canvas id="cDonut" role="img" aria-label="Répartition des dépenses"></canvas><div class="mid"><b id="donutTotal"></b><span>dépensés</span></div></div>
@@ -100,10 +103,11 @@
       <div class="seg2" id="ftype" role="group" aria-label="Type">
        <button data-t="all" aria-pressed="true">Tout</button><button data-t="expense" aria-pressed="false">Dépenses</button><button data-t="income" aria-pressed="false">Revenus</button><button data-t="transfer" aria-pressed="false">Virements</button>
       </div>
+     <button class="btn small" id="txCsv" type="button" title="Exporter la liste affichée">⬇ CSV</button>
      </div>
      <div class="sumline" id="txSum"></div>
     </div>
-    <div class="card" id="txList"><div class="empty">Chargement…</div></div>
+    <div class="card" id="txList"><div class="skel"></div><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
    </section>
 
    <!-- Placements -->
@@ -161,7 +165,7 @@
       <div class="gbtns"><button class="btn primary" type="submit" id="gSave">Créer la tirelire</button><button class="btn" type="button" id="gCancel">Annuler</button></div>
       <small id="gErr" class="down"></small>
      </form>
-     <div id="goals"><div class="empty">Chargement…</div></div>
+     <div id="goals"><div class="skel"></div><div class="skel"></div></div>
      <p class="note" style="margin-top:14px">Ce sont de vraies tirelires Firefly III : tout ce que tu fais ici apparaît dans Firefly et chez l'assistant, et inversement. Mettre de l'argent dans une tirelire le réserve sur le compte, sans le déplacer.</p>
     </section>
 
@@ -182,7 +186,8 @@
     </div>
     <div class="two">
      <section class="card"><h3>Prochains prélèvements</h3><p class="note">Sur les 90 prochains jours.</p><div class="list" id="upcoming"></div></section>
-     <section class="card"><h3>Abonnements et factures</h3><p class="note">Équivalent mensuel de chaque abonnement.</p><div class="list" id="billList"></div></section>
+     <section class="card"><h3>Abonnements et factures</h3><p class="note">Équivalent mensuel de chaque abonnement.</p>
+      <div class="seg2 mb" id="bSort" role="group" aria-label="Tri"><button data-s="cost" aria-pressed="true">Coût</button><button data-s="name" aria-pressed="false">Nom</button><button data-s="freq" aria-pressed="false">Fréquence</button></div><div class="list" id="billList"></div></section>
     </div>
     <section class="card mb"><h3>Objectifs</h3><p class="note">Tirelires Firefly III.</p><div class="list" id="piggies"></div></section>
    </section>
@@ -200,5 +205,5 @@
  <form id="chatForm"><textarea id="chatQ" rows="1" placeholder="Écris ta question…" autocomplete="off"></textarea><button id="chatSend" aria-label="Envoyer">↑</button></form>
 </aside>
 <script src="/chart.js"></script>
-<script src="/app.js"></script>
+<script type="module" src="/js/main.js"></script>
 </body></html>

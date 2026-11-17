@@ -91,7 +91,7 @@ python3 update/update.py apply          # update, one image at a time, asking ea
 
 - **Notification:** a systemd user timer ([update/firefly-update.timer](update/firefly-update.timer)) runs `check --mail` every Saturday at 08:00 and e-mails the list, once per set of versions. Enable it with `bash update/install-timer.sh`. The mail uses the `MAIL_*` settings of `.env` (set them with `bash update/configurer-mail.sh`), to `MAIL_FROM` or `BILAN_TO`.
 - **`apply`:** backs Firefly III up first (`backup.sh`), edits `docker-compose.yml` (or pulls the moving tag for Nextcloud), runs `docker compose up -d --build`, waits until every container is healthy and the web page answers, and goes back to the previous version if it does not. A successful Firefly III update is committed (`git push origin master` to send it). It finds: Firefly III and the Data Importer (GitHub releases), MariaDB (same major), Pico (new `dev` build), and new builds of the moving Nextcloud, Redis and MariaDB tags.
-- **New major versions** (MariaDB 13, Nextcloud 34/35, Redis 8...) are only reported, never applied: read the release notes first and go one major at a time. Nextcloud is backed up every night at 03:30 by the root timer `nextcloud-backup.timer`; check that the last run succeeded before updating it.
+- **New major versions** (MariaDB 13, Nextcloud 36, Redis 8...) are only reported, never applied: read the release notes first and go one major at a time. Nextcloud is backed up every night at 03:30 by the root timer `nextcloud-backup.timer`; check that the last run succeeded before updating it.
 
 MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its version changes.
 
@@ -205,7 +205,7 @@ The `assistant-http` service runs the same server over streamable HTTP, always o
 
 ### Dashboard
 
-**Cairn** ([dashboard/app.py](dashboard/app.py)) is a web app in the spirit of Finary: https://$TS_HOST:8787. Its logo (three stacked pebbles) and icons are in `dashboard/static/` (`logo.svg`, `favicon.svg`, `icon-maskable.svg` and the PNGs made from it); `manifest.webmanifest` lets a phone install it on the home screen ("Add to Home Screen"). The name appears in `index.html`, `static/app.js` (page titles) and the manifest. It has seven tabs (sidebar on a computer, tab bar on a phone):
+**Cairn** ([dashboard/app.py](dashboard/app.py)) is a web app in the spirit of Finary: https://$TS_HOST:8787. Its logo (three stacked pebbles) and icons are in `dashboard/static/` (`logo.svg`, `favicon.svg`, `icon-maskable.svg` and the PNGs made from it); `manifest.webmanifest` lets a phone install it on the home screen ("Add to Home Screen"). The name appears in `index.html`, `static/js/main.js` (page titles) and the manifest. It has seven tabs (sidebar on a computer, tab bar on a phone):
 
 - **Vue d'ensemble**: net worth with a hoverable curve (6 months, 1 year, 2 years), its split by account type and a few automatic insights ("À retenir").
 - **Patrimoine**: total of the assets, debts and the runway (cash and savings in months of average spending), allocation by asset class, how the assets evolved class by class, and one card per class (everyday accounts, savings, investments, debts) listing its accounts with sparklines and changes. Any Firefly asset account shows up there: `Dette …` names are debts, `PEA …` names are investments, a `savingAsset` role is savings.
@@ -223,6 +223,20 @@ docker compose up -d --build dashboard
 tailscale serve --bg --https=8787 http://127.0.0.1:8787
 tailscale serve --bg --https=8787 --set-path=/chat http://127.0.0.1:8686   # the assistant, inside the page
 ```
+
+#### Dashboard code and tests
+
+The page is plain ES modules (no build step) in `dashboard/static/js/`, served by `app.py` from `/js/`: `main.js` (entry: router, loading), one module per tab (`overview`, `assets`, `budget`, `transactions`, `invest`, `future`, `recurring`, `chat`), `state.js` (shared state, written through its setters because modules cannot reassign imports), `dom.js`, `format.js`, `consts.js`, `api.js`, and **`logic.js`**, the pure decisions of the page (projections, alerts, insights, year-over-year, sorting, CSV) with no DOM or fetch. When a module is added or removed, update `MODULES` in `static/sw.js` (a test checks it).
+
+```bash
+dashboard/tests/run.sh          # Python (host) + JavaScript (Docker, no network)
+LINT=1 dashboard/tests/run.sh   # plus ESLint: undefined names, assignments to imports, unused variables
+E2E=1 dashboard/tests/run.sh    # plus the end-to-end check below (the dashboard must be running)
+```
+
+`tests/test_app.py` covers the server (cache, figures, piggy-bank validation, and the real HTTP handler: Host and Origin checks, gzip, ETag, errors); `tests/js/*.test.mjs` cover `format.js` and `logic.js` with node's built-in runner.
+
+`tests/e2e/e2e.sh` drives the **running** dashboard in headless Chrome (Playwright in Docker): every tab, month and range switch, search and filters, sorting, the simulator, the CSV export. It fails on any JavaScript error, on a page that scrolls sideways at 390 px, and on any difference with a recorded baseline of what the pages show. To check a refactor, record first and compare after: `dashboard/tests/e2e/e2e.sh --save`, change the code, rebuild (`docker compose up -d --build dashboard`), then `dashboard/tests/e2e/e2e.sh`. The baseline (`tests/e2e/baseline.json`) holds your figures, so keep it private, and record a new one when your data changes (a new transaction or month is a legitimate difference).
 
 ### Chat
 

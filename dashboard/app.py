@@ -9,8 +9,11 @@ Listens on port 8787; `tailscale serve` publishes it on the tailnet. DASHBOARD_A
 import calendar
 import concurrent.futures
 import datetime as dt
+import gzip
+import hashlib
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -173,7 +176,7 @@ def build(months: int) -> dict:
         row["saved_simple"] = money(row["earned"] - row["spent"])
         result.append(row)
     return {
-        "generated": dt.datetime.now().isoformat(timespec="seconds"),
+        "generated": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "currency": "EUR",
         "months": result,
     }
@@ -526,45 +529,72 @@ def delete_piggy(body: dict) -> None:
     api_write("DELETE", f"/piggy-banks/{piggy['id']}")
 
 
-_store: dict[str, tuple[float, object]] = {}
+class Cache:
+    """TTL cache with one lock per key: concurrent loads of the same page share one set of API
+    calls, but a slow key (Yahoo quotes, a 24-month build) never blocks the others. When Firefly III
+    fails, the last value is served instead of an error."""
+
+    def __init__(self, ttl: float):
+        self.ttl = ttl
+        self._items: dict[str, tuple[float, object]] = {}
+        self._locks: dict[str, threading.Lock] = {}
+        self._guard = threading.Lock()
+
+    def get(self, key: str, make):
+        with self._guard:
+            hit = self._items.get(key)
+            if hit and time.time() - hit[0] < self.ttl:
+                return hit[1]
+            lock = self._locks.setdefault(key, threading.Lock())
+        with lock:
+            with self._guard:
+                hit = self._items.get(key)
+            if hit and time.time() - hit[0] < self.ttl:
+                return hit[1]  # filled while this call waited for the lock
+            try:
+                value = make()
+            except Exception:
+                if hit:
+                    return hit[1]  # stale rather than an error page
+                raise
+            with self._guard:
+                self._items[key] = (time.time(), value)
+            return value
+
+    def drop(self, key: str) -> None:
+        with self._guard:
+            self._items.pop(key, None)
+
+    def expire_all(self) -> None:
+        """Marks everything stale but keeps it as a fallback if the next refresh fails."""
+        with self._guard:
+            self._items = {k: (0.0, v) for k, (_, v) in self._items.items()}
+
+
+cache = Cache(CACHE_SECONDS)
+_lock = threading.Lock()  # serialises the piggy bank writes
 
 
 def cached(key: str, make):
-    with _lock:
-        hit = _store.get(key)
-        if hit and time.time() - hit[0] < CACHE_SECONDS:
-            return hit[1]
-        value = make()
-        _store[key] = (time.time(), value)
-        return value
-
-
-_trees: dict[str, tuple[float, dict]] = {}
+    return cache.get(key, make)
 
 
 def tree(month: str) -> dict:
-    with _lock:
-        hit = _trees.get(month)
-        if hit and time.time() - hit[0] < CACHE_SECONDS:
-            return hit[1]
-        value = expense_tree(month)
-        _trees[month] = (time.time(), value)
-        return value
-
-
-_cache: dict[int, tuple[float, dict]] = {}
-_lock = threading.Lock()
+    return cache.get(f"flow{month}", lambda: expense_tree(month))
 
 
 def data(months: int) -> dict:
-    with _lock:
-        hit = _cache.get(months)
-        if hit and time.time() - hit[0] < CACHE_SECONDS:
-            return hit[1]
-        # Held through the build on purpose: concurrent page loads share one set of API calls.
-        value = build(months)
-        _cache[months] = (time.time(), value)
-        return value
+    return cache.get(f"data{months}", lambda: build(months))
+
+
+def warm_up() -> None:
+    """Fills the main caches at start, so the first page load does not wait for ~100 API calls."""
+    for attempt in range(5):
+        try:
+            data(24)
+            return
+        except Exception:
+            time.sleep(10 * (attempt + 1))  # Firefly III may still be starting
 
 
 # Logo, icons and web manifest (the name and logo of the app: Cairn).
@@ -579,25 +609,60 @@ ASSETS = {
 }
 
 
+COMPRESSIBLE = ("text/", "application/json", "application/javascript", "image/svg+xml",
+                "application/manifest+json")
+_static: dict[str, tuple[float, bytes, str]] = {}
+
+
+def host_name(value: str) -> str:
+    """Host header without its port, IPv6 literals included ("[::1]:8787" -> "[::1]")."""
+    value = (value or "").strip().lower()
+    if value.startswith("["):
+        return value[: value.find("]") + 1] if "]" in value else value
+    return value.rsplit(":", 1)[0] if ":" in value else value
+
+
+def allowed_hosts() -> set[str]:
+    return {"localhost", "127.0.0.1", "[::1]"} | {h.lower() for h in ALLOWED}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "dashboard"
 
-    def reply(self, status: int, body: bytes, content_type: str, cache: str = "no-store") -> None:
+    def reply(self, status: int, body: bytes, content_type: str, cache: str = "no-store",
+              etag: str | None = None) -> None:
+        if etag and self.headers.get("If-None-Match") == etag:
+            status, body = 304, b""
+        elif (len(body) > 1024 and content_type.startswith(COMPRESSIBLE)
+              and "gzip" in (self.headers.get("Accept-Encoding") or "")):
+            body = gzip.compress(body, 6)
+            self.send_response(status)
+            self.send_header("Content-Encoding", "gzip")
+            return self._finish(body, content_type, cache, etag)
         self.send_response(status)
+        self._finish(body, content_type, cache, etag)
+
+    def _finish(self, body: bytes, content_type: str, cache: str, etag: str | None) -> None:
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache)
+        self.send_header("Vary", "Accept-Encoding")
+        if etag:
+            self.send_header("ETag", etag)
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def do_GET(self) -> None:
-        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].lower()
-        if host not in {"localhost", "127.0.0.1", "[::1]"} | {h.lower() for h in ALLOWED}:
+        if host_name(self.headers.get("Host")) not in allowed_hosts():
             return self.reply(403, b"forbidden", "text/plain")
         url = urllib.parse.urlparse(self.path)
         try:
+            if url.path == "/healthz":
+                return self.reply(200, b"ok", "text/plain")
             if url.path == "/":
                 return self.serve("index.html", "text/html; charset=utf-8")
             if url.path in ASSETS:
@@ -617,8 +682,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, json.dumps(cached("goals", goals_data)).encode(), "application/json")
             if url.path == "/api/pea":
                 return self.reply(200, json.dumps(cached("pea", pea_data)).encode(), "application/json")
-            if url.path == "/app.js":
-                return self.serve("static/app.js", "application/javascript")
+            if url.path == "/sw.js":  # service worker: must be served from the root, always revalidated
+                return self.serve("static/sw.js", "application/javascript")
+            if re.fullmatch(r"/js/[a-z0-9-]+\.js", url.path):  # the page's ES modules
+                if os.path.isfile(os.path.join(HERE, "static", url.path[1:])):
+                    return self.serve("static" + url.path, "application/javascript")
             if url.path == "/app.css":
                 return self.serve("static/app.css", "text/css; charset=utf-8")
             if url.path == "/api/flow":
@@ -629,23 +697,25 @@ class Handler(BaseHTTPRequestHandler):
                 query = urllib.parse.parse_qs(url.query)
                 months = max(1, min(MAX_MONTHS, int(query.get("months", ["12"])[0])))
                 if query.get("refresh"):
-                    _cache.clear()
-                    _store.clear()
-                    _trees.clear()
+                    cache.expire_all()
                 return self.reply(200, json.dumps(data(months)).encode(), "application/json")
         except (urllib.error.URLError, ValueError, KeyError) as e:
             return self.reply(502, json.dumps({"error": str(e)}).encode(), "application/json")
+        except Exception as e:  # a bug must give an error answer, not a dropped connection
+            print(f"{self.path}: {type(e).__name__}: {e}", flush=True)
+            return self.reply(500, json.dumps({"error": "Erreur interne"}).encode(), "application/json")
         self.reply(404, b"not found", "text/plain")
+
+    do_HEAD = do_GET
 
 
     def do_POST(self) -> None:
         """Piggy bank changes only (Firefly III is the source of truth). A JSON body, a custom header
         and a same-site Origin are required, so a page on another site cannot write."""
-        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].lower()
-        allowed = {"localhost", "127.0.0.1", "[::1]"} | {h.lower() for h in ALLOWED}
+        host = host_name(self.headers.get("Host"))
         origin = self.headers.get("Origin") or ""
-        origin_host = origin.split("//", 1)[-1].rsplit(":", 1)[0].lower() if origin else host
-        if host not in allowed or origin_host not in allowed:
+        origin_host = host_name(origin.split("//", 1)[-1]) if origin else host
+        if host not in allowed_hosts() or origin_host not in allowed_hosts():
             return self.reply(403, b"forbidden", "text/plain")
         if (self.headers.get("X-Requested-With") != "dashboard"
                 or "application/json" not in (self.headers.get("Content-Type") or "")):
@@ -663,20 +733,32 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Action inconnue")
             with _lock:
                 action(body)
-                _store.pop("goals", None)
+                cache.drop("goals")
         except (ValueError, KeyError, TypeError) as e:
             return self.reply(400, json.dumps({"error": str(e)}).encode(), "application/json")
         except urllib.error.URLError as e:
             return self.reply(502, json.dumps({"error": str(e)}).encode(), "application/json")
+        except Exception as e:
+            print(f"POST {self.path}: {type(e).__name__}: {e}", flush=True)
+            return self.reply(500, json.dumps({"error": "Erreur interne"}).encode(), "application/json")
         self.reply(200, b"{}", "application/json")
 
-    def serve(self, name: str, content_type: str, cache: str = "no-store") -> None:
-        with open(os.path.join(HERE, name), "rb") as f:
-            self.reply(200, f.read(), content_type, cache)
+    def serve(self, name: str, content_type: str, cache: str | None = None) -> None:
+        """Static file with an ETag: app code revalidates (304 when unchanged), icons and Chart.js
+        are kept a day."""
+        path = os.path.join(HERE, name)
+        mtime = os.path.getmtime(path)
+        hit = _static.get(name)
+        if not hit or hit[0] != mtime:
+            with open(path, "rb") as f:
+                body = f.read()
+            hit = _static[name] = (mtime, body, f'"{hashlib.sha1(body).hexdigest()[:16]}"')
+        self.reply(200, hit[1], content_type, cache or "no-cache", hit[2])
 
     def log_message(self, fmt: str, *args) -> None:
         pass
 
 
 if __name__ == "__main__":
+    threading.Thread(target=warm_up, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

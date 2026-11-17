@@ -11,3 +11,6 @@ patrimoine/*
 !patrimoine/*.example.txt
 bilans/
 __pycache__/
+
+# Cairn e2e baseline holds personal figures
+dashboard/tests/e2e/baseline.json
