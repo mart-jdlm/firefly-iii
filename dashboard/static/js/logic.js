@@ -209,3 +209,45 @@ export function matches(query, text) {
   const t = norm(text);
   return norm(query).split(/\s+/).filter(Boolean).every(w => t.includes(w));
 }
+
+/* ---------- placements: gain per line, sorting, diversification ---------- */
+
+/** What a line gained since it was bought: null without a purchase price or a price today. */
+export const lineGain = p => (p.value !== null && p.cost ? { amount: p.value - p.cost, pct: p.value / p.cost - 1 } : null);
+
+/** Positions by "value" (largest first), "gain" (best return since purchase; lines without a purchase price last) or "day". Never modifies the input. */
+export function sortPositions(positions, by) {
+  const key = { value: p => p.value, day: p => p.day, gain: p => lineGain(p)?.pct ?? null }[by] || (p => p.value);
+  return [...positions].sort((a, b) => {
+    const x = key(a), y = key(b);
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return y - x;
+  });
+}
+
+export const UNCLASSED = 'Non classé';
+
+/**
+ * The portfolio cut by an axis: "classe" (asset class), "zones" or "secteurs". `breakdown` is the
+ * content of repartition.json ({symbol: {classe, zones: {name: %}, secteurs: {name: %}}}); a line
+ * the file does not describe goes to "Non classé", the part of a line its weights leave out (under
+ * 100 %) to "Autres", and cash to "Liquidités". Returns rows by size, "Non classé" last, and the total.
+ */
+export function diversify(positions, cash, breakdown, axis) {
+  const acc = new Map(), add = (name, v) => acc.set(name, (acc.get(name) || 0) + v);
+  for (const p of positions) {
+    if (p.value === null) continue;
+    const info = breakdown?.[p.symbol];
+    if (axis === 'classe') { add(info?.classe || UNCLASSED, p.value); continue; }
+    const w = info?.[axis] || {}, sum = Object.values(w).reduce((a, b) => a + b, 0);
+    if (!sum) { add(UNCLASSED, p.value); continue; }
+    for (const [name, x] of Object.entries(w)) add(name, p.value * x / Math.max(sum, 100));
+    if (sum < 100) add('Autres', p.value * (100 - sum) / 100);
+  }
+  if (cash > 0) add('Liquidités', cash);
+  const rows = [...acc].map(([name, value]) => ({ name, value })).filter(r => r.value > 0.005)
+    .sort((a, b) => (a.name === UNCLASSED) - (b.name === UNCLASSED) || b.value - a.value);
+  return { rows, total: rows.reduce((a, r) => a + r.value, 0) };
+}

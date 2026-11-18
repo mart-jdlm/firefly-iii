@@ -1,0 +1,13 @@
+{
+  "_note": "Exemple : décris ce que contient chaque ligne de pea.txt. Poids en %, à relever sur la fiche de l'ETF (les chiffres ci-dessous sont seulement illustratifs). Copier en repartition.json (ignoré par git).",
+  "CW8.PA": {
+    "classe": "Actions",
+    "zones": {"États-Unis": 70, "Europe": 15, "Japon": 6, "Autres": 9},
+    "secteurs": {"Technologie": 25, "Finance": 15, "Santé": 11, "Autres": 49}
+  },
+  "ESE.PA": {
+    "classe": "Actions",
+    "zones": {"États-Unis": 100},
+    "secteurs": {"Technologie": 32, "Finance": 13, "Santé": 11, "Autres": 44}
+  }
+}

@@ -10,6 +10,7 @@ import calendar
 import datetime as dt
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -447,9 +448,22 @@ def yahoo_price(symbol: str) -> float:
     return meta["regularMarketPrice"]
 
 
+PRU_WORD = re.compile(r"(?:^|\s)pru=(\d+(?:[.,]\d+)?)(?=\s|$)")
+
+
+def split_pru(label: str) -> tuple[str, float | None]:
+    """A line's comment without its `pru=` word (average purchase price per share), and that price."""
+    found = PRU_WORD.search(label)
+    if not found:
+        return label, None
+    return " ".join(PRU_WORD.sub(" ", label).split()), float(found.group(1).replace(",", "."))
+
+
 @mcp.tool(annotations=READ_ONLY)
 def pea_positions() -> dict:
-    """Holdings of the PEA at today's prices (from patrimoine/pea.txt), with each line's weight."""
+    """Holdings of the PEA at today's prices (from patrimoine/pea.txt), with each line's weight.
+
+    When a line has a purchase price (cost_price), it also gives the gain since purchase."""
     lines = []
     try:
         f = open(PEA_POSITIONS, encoding="utf-8")
@@ -461,13 +475,17 @@ def pea_positions() -> dict:
             if not parts or parts[0].startswith("#"):
                 continue
             symbol, quantity = parts[0], float(parts[1])
-            label = parts[2].strip() if len(parts) > 2 else ""
+            label, cost_price = split_pru(parts[2].strip() if len(parts) > 2 else "")
             if symbol == "especes":
                 lines.append({"symbol": "especes", "label": "Liquidités", "value": money(quantity)})
             else:
                 price = yahoo_price(symbol)
-                lines.append({"symbol": symbol, "label": label, "quantity": quantity,
-                              "price": price, "value": money(quantity * price)})
+                line = {"symbol": symbol, "label": label, "quantity": quantity,
+                        "price": price, "value": money(quantity * price)}
+                if cost_price:
+                    line.update(cost_price=cost_price, gain=money(quantity * (price - cost_price)),
+                                gain_pct=round((price / cost_price - 1) * 100, 2))
+                lines.append(line)
     total = sum(line["value"] for line in lines)
     for line in lines:
         line["weight"] = round(line["value"] / total, 4) if total else 0
@@ -475,16 +493,20 @@ def pea_positions() -> dict:
 
 
 @mcp.tool(annotations=WRITE)
-def set_pea_position(symbol: str, quantity: float, label: str | None = None) -> dict:
+def set_pea_position(symbol: str, quantity: float, label: str | None = None, cost_price: float | None = None) -> dict:
     """Sets the quantity held of one PEA position in patrimoine/pea.txt (0 removes the line).
 
     symbol is the Yahoo Finance symbol (CW8.PA for Paris; checked to be quoted in euros), or
     "especes" for the PEA's cash in euros. quantity is the new total held, not the amount bought.
     label is a free comment, kept from the existing line when omitted.
+    cost_price is the average purchase price per share (PRU), used to show the gain since purchase;
+    kept from the existing line when omitted, 0 removes it.
     Returns the position before and after, and the positions file's total at today's prices.
     """
     if quantity < 0:
         raise ToolError("quantity cannot be negative")
+    if cost_price is not None and cost_price < 0:
+        raise ToolError("cost_price cannot be negative")
     if symbol != "especes" and quantity:
         try:
             yahoo_price(symbol)
@@ -498,12 +520,14 @@ def set_pea_position(symbol: str, quantity: float, label: str | None = None) -> 
     index = next((i for i, raw in enumerate(lines)
                   if raw.split(None, 1) and raw.split(None, 1)[0] == symbol), None)
     before = None
-    old_label = ""
+    old_label, old_cost = "", None
     if index is not None:
         parts = lines[index].split(None, 2)
         before = float(parts[1])
-        old_label = parts[2].strip() if len(parts) > 2 else ""
+        old_label, old_cost = split_pru(parts[2].strip() if len(parts) > 2 else "")
     label = old_label if label is None else label
+    cost_price = old_cost if cost_price is None else (cost_price or None)
+    label = " ".join(filter(None, [f"pru={cost_price:g}" if cost_price else "", label]))
     if quantity == 0 and symbol != "especes":
         if index is None:
             raise ToolError(f"{symbol} is not in the positions file")

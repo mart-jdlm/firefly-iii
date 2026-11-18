@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, matches, periodRange, project, simulate, twr, xirr, runway, sortBills, yoyRows } from '../../static/js/logic.js';
+import { diversify, lineGain, sortPositions, billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, matches, periodRange, project, simulate, twr, xirr, runway, sortBills, yoyRows } from '../../static/js/logic.js';
 
 const plain = s => s.replace(/[  ]/g, ' ');
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} is not ${b}`);
@@ -298,4 +298,41 @@ test('simulate buys at the first close on or after the deposit and values at the
   assert.ok(Math.abs(at('2026-01-31') - 220) < 1e-9);   // 2 units bought at 110, still 110
   assert.ok(Math.abs(at('2026-02-10') - 240) < 1e-9);   // 2 units at 120
   assert.equal(simulate([], prices)('2026-02-10'), 0);
+});
+
+/* ---------- placements ---------- */
+const pos = (symbol, value, cost = null, day = null) => ({ symbol, value, cost, day });
+
+test('lineGain needs a cost and a price', () => {
+  assert.deepEqual(lineGain(pos('A', 110, 100)), { amount: 10, pct: 0.10000000000000009 });
+  assert.equal(lineGain(pos('A', 110)), null);
+  assert.equal(lineGain(pos('A', null, 100)), null);
+});
+
+test('sortPositions: by value, by return since purchase (no cost last) and by day, input untouched', () => {
+  const l = [pos('A', 100, 50, -1), pos('B', 300, null, 2), pos('C', 200, 250, 0.5), pos('D', null)];
+  assert.deepEqual(sortPositions(l, 'value').map(p => p.symbol), ['B', 'C', 'A', 'D']);
+  assert.deepEqual(sortPositions(l, 'gain').map(p => p.symbol), ['A', 'C', 'B', 'D']);
+  assert.deepEqual(sortPositions(l, 'day').map(p => p.symbol), ['B', 'C', 'A', 'D']);
+  assert.deepEqual(l.map(p => p.symbol), ['A', 'B', 'C', 'D']);
+});
+
+test('diversify by class puts unknown lines in "Non classé" (last) and cash in "Liquidités"', () => {
+  const bd = { A: { classe: 'Actions', zones: {}, secteurs: {} } };
+  const out = diversify([pos('A', 100), pos('B', 300)], 50, bd, 'classe');
+  assert.deepEqual(out.rows, [{ name: 'Actions', value: 100 }, { name: 'Liquidités', value: 50 }, { name: 'Non classé', value: 300 }]);
+  assert.equal(out.total, 450);
+});
+
+test('diversify by zone splits a line by its weights, leftover goes to "Autres"', () => {
+  const bd = { A: { classe: 'Actions', zones: { US: 60, Europe: 30 }, secteurs: {} } };
+  const out = diversify([pos('A', 1000)], 0, bd, 'zones');
+  assert.deepEqual(out.rows.map(r => r.name), ['US', 'Europe', 'Autres']);
+  near(out.rows[0].value, 600); near(out.rows[1].value, 300); near(out.rows[2].value, 100);
+});
+
+test('diversify normalises weights above 100 % and skips lines without a price', () => {
+  const bd = { A: { classe: null, zones: { US: 150, Europe: 50 }, secteurs: {} } };
+  const out = diversify([pos('A', 200), pos('B', null)], 0, bd, 'zones');
+  near(out.rows[0].value, 150); near(out.rows[1].value, 50); assert.equal(out.rows.length, 2);
 });

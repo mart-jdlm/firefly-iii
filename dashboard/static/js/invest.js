@@ -4,7 +4,7 @@ import { CATS, GROUPS } from './consts.js';
 import { $, bubble, css, el, fail, mk, pill, skel } from './dom.js';
 import { eur, eur2, mlabel } from './format.js';
 import { all, memo, page, shown } from './state.js';
-import { simulate, twr, xirr } from './logic.js';
+import { diversify, lineGain, simulate, sortPositions, twr, UNCLASSED, xirr } from './logic.js';
 
 /* Share of the assets that is invested, next to the cash and savings, so the PEA is read in context. */
 function renderShare(){
@@ -49,16 +49,11 @@ export async function renderInvest(){
  $('iLegB').hidden=!bench;if(bench)$('iLegBn').textContent=bench.label;
  renderPerf({value,flows,bench,todayIso,worth,dividends:d.dividends||[],fees:d.fees||[]});
 
- // positions and allocation
+ // positions, allocation and diversification
  const empty=!d.positions.length;
  $('iEmpty').hidden=!empty;$('iHoldings').hidden=empty;
- $('iNote').textContent=empty?'Aucun titre pour le moment':`${d.positions.length} ligne${d.positions.length>1?'s':''} · cours Yahoo Finance`;
- const wt=value||1,rowsEl=d.positions.map(p=>{
-  const sub=el('small',{textContent:`${p.quantity.toLocaleString('fr-FR')} × ${p.price===null?'cours indisponible':eur2(p.price)+(p.as_of?` (cours du ${p.as_of.slice(8)}/${p.as_of.slice(5,7)})`:'')}${p.label?' · '+p.label:''}`});
-  const day=el('span',{className:'vs'+(p.day===null?'':p.day>0?' up':p.day<0?' down':''),textContent:p.day===null?'':`${p.day>0?'+':p.day<0?'−':''}${Math.abs(p.day).toFixed(2).replace('.',',')} %`});day.style.width='64px';
-  return el('div',{className:'item'},[bubble(p.symbol),el('span',{className:'name'},[p.symbol,sub]),day,el('span',{className:'amt fix',textContent:p.value===null?'—':eur2(p.value)})]);
- });
- $('iPositions').replaceChildren(...(rowsEl.length?rowsEl:[el('div',{className:'empty',textContent:`Liquidités : ${eur2(d.cash)}`})]));
+ const wt=value||1;
+ renderPositions(d);renderDiv(d);
  const slices=[...priced.map(p=>[p.label||p.symbol,p.value]),...(d.cash>0?[['Liquidités',d.cash]]:[])];
  $('iTotal').textContent=eur2(value);
  const col=i=>css(CATS[i%CATS.length]);
@@ -67,6 +62,55 @@ export async function renderInvest(){
  $('iAlloc').replaceChildren(...slices.map(([n,v],i)=>{const dot=el('span',{className:'dot'});dot.style.background=col(i);
   return el('div',{className:'item'},[dot,el('span',{className:'name',textContent:n}),el('span',{className:'pct',textContent:Math.round(v/wt*100)+' %'}),el('span',{className:'amt',textContent:eur2(v)})])}));
 }
+
+const signed=v=>(v>0?'+':v<0?'−':'')+eur2(Math.abs(v));
+const pc1=v=>`${v>=0?'+':'−'}${Math.abs(v*100).toFixed(1).replace('.',',')} %`;
+let sortBy='value',axis='classe';
+
+/* Positions: price, purchase price (PRU, `pru=` in pea.txt), gain since purchase, day change, value. */
+function renderPositions(d){
+ const hasCost=d.positions.some(p=>p.cost);
+ if(!hasCost&&sortBy==='gain')sortBy='value';
+ document.querySelectorAll('#iSort button').forEach(b=>{b.hidden=b.dataset.s==='gain'&&!hasCost;b.setAttribute('aria-pressed',b.dataset.s===sortBy)});
+ const gains=d.positions.map(lineGain),complete=hasCost&&gains.every(Boolean);
+ $('iNote').textContent=!d.positions.length?'Aucun titre pour le moment':`${d.positions.length} ligne${d.positions.length>1?'s':''} · cours Yahoo Finance`
+  +(complete?` · plus-value latente ${signed(gains.reduce((a,g)=>a+g.amount,0))}`:'');
+ const col=(text,w,cls='')=>{const e=el('span',{className:'vs '+cls,textContent:text});e.style.width=w;return e};
+ $('iCols').replaceChildren(...(d.positions.length?[el('div',{className:'item'},[el('span',{className:'name'}),col('Jour','64px','m-hide'),...(hasCost?[col('Gain','72px')]:[]),col('Valeur','84px')])]:[]));
+ const rowsEl=sortPositions(d.positions,sortBy).map(p=>{
+  const g=lineGain(p);
+  const sub=el('small',{textContent:`${p.quantity.toLocaleString('fr-FR')} × ${p.price===null?'cours indisponible':eur2(p.price)+(p.as_of?` (cours du ${p.as_of.slice(8)}/${p.as_of.slice(5,7)})`:'')}${p.pru?' · PRU '+eur2(p.pru):''}${g?' · '+signed(g.amount):''}${p.label?' · '+p.label:''}`});
+  const day=col(p.day===null?'':`${p.day>0?'+':p.day<0?'−':''}${Math.abs(p.day).toFixed(2).replace('.',',')} %`,'64px','m-hide'+(p.day===null?'':p.day>0?' up':p.day<0?' down':''));
+  const gain=hasCost?[col(g?pc1(g.pct):'','72px',g?(g.pct>0?'up':g.pct<0?'down':''):'')]:[];
+  if(g)gain[0].title='Plus-value '+signed(g.amount);
+  return el('div',{className:'item'},[bubble(p.symbol),el('span',{className:'name'},[p.symbol,sub]),day,...gain,el('span',{className:'amt fix',textContent:p.value===null?'—':eur2(p.value)})]);
+ });
+ $('iPositions').replaceChildren(...(rowsEl.length?rowsEl:[el('div',{className:'empty',textContent:`Liquidités : ${eur2(d.cash)}`})]));
+}
+
+/* Diversification: the portfolio by asset class, zone or sector, from patrimoine/repartition.json. */
+function renderDiv(d){
+ const card=$('iDiv');card.hidden=!d.positions.length;if(card.hidden)return;
+ document.querySelectorAll('#iAxis button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.a===axis));
+ $('iAxis').hidden=!d.breakdown;
+ if(!d.breakdown){
+  $('iDivNote').textContent='';
+  $('iDivRows').replaceChildren(el('div',{className:'empty',textContent:'Décris ce que contient chaque ligne dans patrimoine/repartition.json (voir repartition.example.json) pour voir ta répartition par classe, zone et secteur.'}));
+  return;
+ }
+ const{rows,total}=diversify(d.positions,d.cash,d.breakdown,axis);
+ const unknown=rows.find(r=>r.name===UNCLASSED);
+ $('iDivNote').textContent=!rows.length?'':unknown?`${Math.round(unknown.value/total*100)} % ne sont pas décrits dans repartition.json.`:'Réparti selon la composition que tu as indiquée.';
+ $('iDivRows').replaceChildren(...(rows.length?rows.map((r,i)=>{
+  const share=r.value/total,color=r.name===UNCLASSED?css('--c7'):css(CATS[i%CATS.length]);
+  const track=el('div',{className:'track'},[el('span')]);track.firstChild.style.cssText=`width:${Math.max(share*100,1)}%;background:${color}`;
+  return el('div',{className:'dvrow'},[el('div',{className:'row'},[el('b',{textContent:r.name}),el('span',{textContent:`${(share*100).toFixed(share<.1?1:0).replace('.',',')} % · ${eur2(r.value)}`})]),track]);
+ }):[el('div',{className:'empty',textContent:'Rien à répartir'})]));
+}
+
+$('iSort').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!memo.pea)return;sortBy=b.dataset.s;renderPositions(memo.pea)});
+
+$('iAxis').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!memo.pea)return;axis=b.dataset.a;renderDiv(memo.pea)});
 
 /* Performance card: yearly return, return without the deposits, and the same deposits in an index. */
 function renderPerf({value,flows,bench,todayIso,worth,dividends,fees}){

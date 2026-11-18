@@ -142,11 +142,16 @@
      <div class="chart"><canvas id="cPea" role="img" aria-label="Valeur du PEA et versements cumulés"></canvas></div>
      <div class="legend"><span><i style="background:var(--accent)"></i>Valeur</span><span><i style="background:var(--c7)"></i>Versements</span><span id="iLegB" hidden><i style="background:var(--c3)"></i>Même argent en <span id="iLegBn"></span></span></div></section>
     <section class="card mb" id="iPerf"><h3>Performance</h3><p class="note" id="iPerfNote">&nbsp;</p><div class="list" id="iPerfRows"></div></section>
-    <div class="two" id="iHoldings">
-     <section class="card"><h3>Positions</h3><p class="note" id="iNote">&nbsp;</p><div class="list" id="iPositions"></div></section>
-     <section class="card"><h3>Répartition</h3><p class="note">&nbsp;</p>
-      <div class="donut-wrap"><canvas id="cPeaDonut" role="img" aria-label="Répartition du PEA"></canvas><div class="mid"><b id="iTotal"></b><span>au total</span></div></div>
-      <div class="list" id="iAlloc"></div></section>
+    <div id="iHoldings">
+     <section class="card mb"><div class="cardhead"><h3>Positions</h3><div class="seg2" id="iSort" role="group" aria-label="Trier les positions"><button type="button" data-s="value" aria-pressed="true">Valeur</button><button type="button" data-s="gain" aria-pressed="false">Plus-value</button><button type="button" data-s="day" aria-pressed="false">Jour</button></div></div>
+      <p class="note" id="iNote">&nbsp;</p><div class="list colhead" id="iCols"></div><div class="list" id="iPositions"></div></section>
+     <div class="two">
+      <section class="card"><h3>Répartition</h3><p class="note">Poids de chaque ligne.</p>
+       <div class="donut-wrap"><canvas id="cPeaDonut" role="img" aria-label="Répartition du PEA"></canvas><div class="mid"><b id="iTotal"></b><span>au total</span></div></div>
+       <div class="list" id="iAlloc"></div></section>
+      <section class="card" id="iDiv"><div class="cardhead"><h3>Diversification</h3><div class="seg2" id="iAxis" role="group" aria-label="Axe de diversification"><button type="button" data-a="classe" aria-pressed="true">Classe</button><button type="button" data-a="zones" aria-pressed="false">Zone</button><button type="button" data-a="secteurs" aria-pressed="false">Secteur</button></div></div>
+       <p class="note" id="iDivNote">&nbsp;</p><div class="list dv" id="iDivRows"></div></section>
+     </div>
     </div>
     <section class="card mb" id="iEmpty" hidden><h3>Comment suivre tes premiers titres</h3>
      <p class="note">Ton PEA ne contient pour l'instant que des liquidités. Dès ton premier achat :</p>

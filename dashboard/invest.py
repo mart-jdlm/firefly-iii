@@ -16,6 +16,8 @@ import firefly
 
 PEA_POSITIONS = os.environ.get("PEA_POSITIONS", "/patrimoine/pea.txt")
 
+PEA_BREAKDOWN = os.environ.get("PEA_BREAKDOWN", "/patrimoine/repartition.json")
+
 YAHOO_HOSTS = ("query1.finance.yahoo.com", "query2.finance.yahoo.com")
 
 _last_good: dict[str, tuple[str, object]] = {}  # what Yahoo last answered, per request: (date, value)
@@ -95,8 +97,20 @@ BENCHMARK = os.environ.get("PEA_BENCHMARK", "CW8.PA")
 BENCHMARK_LABEL = os.environ.get("PEA_BENCHMARK_LABEL", "MSCI World")
 
 
+PRU_WORD = re.compile(r"(?:^|\s)pru=(\d+(?:[.,]\d+)?)(?=\s|$)")
+
+
+def split_label(label: str) -> tuple[str, float | None]:
+    """A line's comment without its `pru=` word, and that average purchase price per share (None
+    when absent). The word lives in the comment so valuation.sh and older readers ignore it."""
+    found = PRU_WORD.search(label)
+    if not found:
+        return label, None
+    return " ".join(PRU_WORD.sub(" ", label).split()), float(found.group(1).replace(",", "."))
+
+
 def read_positions() -> list[dict] | None:
-    """Lines of the PEA positions file (symbol, quantity, label), None without the file."""
+    """Lines of the PEA positions file (symbol, quantity, label, pru), None without the file."""
     try:
         f = open(PEA_POSITIONS, encoding="utf-8")
     except FileNotFoundError:
@@ -108,11 +122,38 @@ def read_positions() -> list[dict] | None:
             if not parts or parts[0].startswith("#"):
                 continue
             try:
-                lines.append({"symbol": parts[0], "quantity": float(parts[1]),
-                              "label": parts[2].strip() if len(parts) > 2 else ""})
+                label, pru = split_label(parts[2].strip() if len(parts) > 2 else "")
+                lines.append({"symbol": parts[0], "quantity": float(parts[1]), "label": label, "pru": pru})
             except (IndexError, ValueError):
                 continue
     return lines
+
+
+def read_breakdown() -> dict | None:
+    """What each holding is made of, from patrimoine/repartition.json (None without a usable file):
+    {symbol: {"classe": "Actions", "zones": {"Europe": 60, ...}, "secteurs": {...}}}. Weights are
+    percentages; anything malformed is dropped rather than shown wrong."""
+    try:
+        with open(PEA_BREAKDOWN, encoding="utf-8") as f:
+            raw = json.load(f)
+    except (FileNotFoundError, ValueError, OSError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    def weights(value) -> dict:
+        if not isinstance(value, dict):
+            return {}
+        return {str(k): float(w) for k, w in value.items()
+                if isinstance(w, (int, float)) and not isinstance(w, bool) and w > 0}
+
+    out = {}
+    for symbol, info in raw.items():
+        if not isinstance(info, dict) or symbol.startswith("_"):
+            continue
+        out[symbol] = {"classe": str(info["classe"]) if isinstance(info.get("classe"), str) else None,
+                       "zones": weights(info.get("zones")), "secteurs": weights(info.get("secteurs"))}
+    return out or None
 
 
 DIVIDEND_WORDS = re.compile(r"dividende", re.I)
@@ -175,8 +216,10 @@ def pea_data() -> dict:
                 continue
             price = quote["price"] if quote else None
             previous = quote["previous"] if quote else None
+            pru = line.get("pru")
             positions.append({
                 "symbol": line["symbol"], "label": line["label"], "quantity": line["quantity"],
+                "pru": pru, "cost": firefly.money(line["quantity"] * pru) if pru else None,
                 "price": price, "value": firefly.money(line["quantity"] * price) if price else None,
                 "as_of": quote.get("as_of") if quote else None,
                 "day": round((price / previous - 1) * 100, 2) if price and previous else None,
@@ -187,4 +230,4 @@ def pea_data() -> dict:
             "contributions": monthly, "flows": flows,
             "dividends": sorted(extras["dividend"], key=lambda e: e["date"]),
             "fees": sorted(extras["fee"], key=lambda e: e["date"]), "positions": positions, "cash": firefly.money(cash),
-            "benchmark": benchmark_data(flows)}
+            "benchmark": benchmark_data(flows), "breakdown": read_breakdown()}

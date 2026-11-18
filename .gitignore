@@ -9,6 +9,7 @@ import/
 .api.env
 patrimoine/*
 !patrimoine/*.example.txt
+!patrimoine/*.example.json
 bilans/
 __pycache__/
 

@@ -91,16 +91,43 @@ class Helpers(unittest.TestCase):
 
     def test_read_positions(self):
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
-            f.write("# symbol quantity label\nCW8.PA 2 ETF Monde\n\nespeces 3.2\nbad line\nXYZ notanumber\n")
+            f.write("# symbol quantity label\nCW8.PA 2 ETF Monde\n\nespeces 3.2\nbad line\nXYZ notanumber\nESE.PA 5 pru=41,5 BNP S&P 500\n")
         try:
             with mock.patch.object(invest, "PEA_POSITIONS", f.name):
                 self.assertEqual(invest.read_positions(), [
-                    {"symbol": "CW8.PA", "quantity": 2.0, "label": "ETF Monde"},
-                    {"symbol": "especes", "quantity": 3.2, "label": ""}])
+                    {"symbol": "CW8.PA", "quantity": 2.0, "label": "ETF Monde", "pru": None},
+                    {"symbol": "especes", "quantity": 3.2, "label": "", "pru": None},
+                    {"symbol": "ESE.PA", "quantity": 5.0, "label": "BNP S&P 500", "pru": 41.5}])
         finally:
             os.unlink(f.name)
         with mock.patch.object(invest, "PEA_POSITIONS", "/nonexistent/pea.txt"):
             self.assertIsNone(invest.read_positions())
+
+
+class BreakdownTests(unittest.TestCase):
+    def read(self, text):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            f.write(text)
+        try:
+            with mock.patch.object(invest, "PEA_BREAKDOWN", f.name):
+                return invest.read_breakdown()
+        finally:
+            os.unlink(f.name)
+
+    def test_split_label_takes_the_pru_word_out_of_the_comment(self):
+        self.assertEqual(invest.split_label("pru=412.5 Amundi MSCI World"), ("Amundi MSCI World", 412.5))
+        self.assertEqual(invest.split_label("MSCI pru=3,2"), ("MSCI", 3.2))
+        self.assertEqual(invest.split_label("sans pru"), ("sans pru", None))
+        self.assertEqual(invest.split_label("pru=abc"), ("pru=abc", None))
+
+    def test_a_good_file_is_read_and_bad_parts_are_dropped(self):
+        got = self.read('{"_note": "x", "CW8.PA": {"classe": "Actions", "zones": {"US": 70, "EU": "x", "JP": -1, "ok": true}, "secteurs": 3}, "BAD": 5}')
+        self.assertEqual(got, {"CW8.PA": {"classe": "Actions", "zones": {"US": 70.0}, "secteurs": {}}})
+
+    def test_no_file_or_unusable_file_gives_none(self):
+        self.assertIsNone(self.read("not json")); self.assertIsNone(self.read("[1]")); self.assertIsNone(self.read("{}"))
+        with mock.patch.object(invest, "PEA_BREAKDOWN", "/nonexistent/x.json"):
+            self.assertIsNone(invest.read_breakdown())
 
 
 class ApiLayerTests(unittest.TestCase):
@@ -287,7 +314,7 @@ class FigureTests(unittest.TestCase):
         history = [tx("2026-08-10", "1", "5", "300"), tx("2026-08-20", "1", "5", "100"), tx("2026-09-05", "5", "1", "50"),
                    tx("2026-09-30", "9", "5", "40", cat="Valorisation"), tx("2026-10-02", "7", "8", "999")]
         quotes = {"CW8.PA": {"price": 100.0, "previous": 98.0}}
-        positions = [{"symbol": "CW8.PA", "quantity": 2.0, "label": "ETF"}, {"symbol": "especes", "quantity": 3.2, "label": ""},
+        positions = [{"symbol": "CW8.PA", "quantity": 2.0, "label": "ETF", "pru": 90.0}, {"symbol": "especes", "quantity": 3.2, "label": ""},
                      {"symbol": "NOPE.PA", "quantity": 1.0, "label": ""}]
         with mock.patch.object(firefly, "api_all", router({"/accounts": [pea, account("1", "Compte", 0)], "/accounts/5/transactions": history})), \
              mock.patch.object(invest, "read_positions", lambda: positions), mock.patch.object(invest, "yahoo_quote", lambda s: quotes.get(s)):
@@ -297,6 +324,7 @@ class FigureTests(unittest.TestCase):
         self.assertEqual(d["cash"], 3.2)
         cw8 = d["positions"][0]
         self.assertEqual((cw8["value"], cw8["day"]), (200.0, 2.04))
+        self.assertEqual((cw8["pru"], cw8["cost"]), (90.0, 180.0))
         self.assertIsNone(d["positions"][1]["price"]); self.assertIsNone(d["positions"][1]["value"])
 
     def test_pea_data_without_a_positions_file_counts_the_balance_as_cash(self):
