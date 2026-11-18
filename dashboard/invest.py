@@ -176,6 +176,23 @@ def benchmark_data(flows: list[dict]) -> dict | None:
     return {"symbol": BENCHMARK, "label": BENCHMARK_LABEL, "prices": prices} if prices else None
 
 
+HISTORY_DAYS = {"1m": 31, "1y": 366, "max": 5 * 366}
+
+
+def line_history(symbol: str, span: str) -> dict:
+    """Daily closes of one holding of the positions file over "1m", "1y" or "max" (5 years). Only
+    symbols of the file are served, so this cannot be used to query Yahoo Finance for anything else."""
+    if span not in HISTORY_DAYS:
+        raise ValueError("Période inconnue")
+    if symbol == "especes" or not any(line["symbol"] == symbol for line in read_positions() or []):
+        raise ValueError("Ligne inconnue")
+    since = (dt.date.today() - dt.timedelta(days=HISTORY_DAYS[span])).isoformat()
+    prices = yahoo_history(symbol, since)
+    if prices is None:
+        raise ValueError("Cours indisponibles")
+    return {"symbol": symbol, "span": span, "prices": [day for day in prices if day[0] >= since]}
+
+
 def pea_data() -> dict:
     accounts = [a for a in firefly.api_all("/accounts", {"type": "asset"})
                 if a["attributes"]["name"].startswith(firefly.INVESTMENT_PREFIX)]

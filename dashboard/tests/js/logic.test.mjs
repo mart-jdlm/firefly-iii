@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { diversify, lineGain, sortPositions, billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, matches, periodRange, project, simulate, twr, xirr, runway, sortBills, yoyRows } from '../../static/js/logic.js';
+import { normalizeLayout, cumulativeSpend, dividendOutlook, diversify, lineGain, sortPositions, billCost, buildCsv, computeAlerts, computeInsights, extraAlerts, matches, periodRange, project, simulate, twr, xirr, runway, sortBills, yoyRows } from '../../static/js/logic.js';
 
 const plain = s => s.replace(/[  ]/g, ' ');
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} is not ${b}`);
@@ -335,4 +335,28 @@ test('diversify normalises weights above 100 % and skips lines without a price',
   const bd = { A: { classe: null, zones: { US: 150, Europe: 50 }, secteurs: {} } };
   const out = diversify([pos('A', 200), pos('B', null)], 0, bd, 'zones');
   near(out.rows[0].value, 150); near(out.rows[1].value, 50); assert.equal(out.rows.length, 2);
+});
+
+test('cumulativeSpend adds withdrawals day by day, ignores other types and months', () => {
+  const tx = [{ type: 'withdrawal', date: '2026-10-01', amount: 10 }, { type: 'withdrawal', date: '2026-10-03', amount: 5 },
+    { type: 'deposit', date: '2026-10-02', amount: 999 }, { type: 'withdrawal', date: '2026-09-30', amount: 7 }];
+  assert.deepEqual(cumulativeSpend(tx, '2026-10', 4), [10, 10, 15, 15]);
+  assert.equal(cumulativeSpend(tx, '2026-10').length, 31);
+  assert.equal(cumulativeSpend(tx, '2026-02').length, 28);
+  assert.deepEqual(cumulativeSpend(tx, '2026-10', 2), [10, 10]);
+});
+
+test('dividendOutlook expects last 12 months again a year later', () => {
+  const d = [{ date: '2025-01-10', amount: 50 }, { date: '2025-12-01', amount: 4 }, { date: '2026-06-15', amount: 6 }];
+  const out = dividendOutlook(d, '2026-11-18');
+  assert.equal(out.received, 10);
+  assert.deepEqual(out.expected, [{ date: '2026-12-01', amount: 4 }, { date: '2027-06-15', amount: 6 }]);
+  assert.deepEqual(dividendOutlook([], '2026-11-18'), { received: 0, expected: [] });
+});
+
+test('normalizeLayout keeps a valid saved layout, drops unknown cards and appends new ones', () => {
+  const ids = ['a', 'b', 'c'];
+  assert.deepEqual(normalizeLayout({ order: ['c', 'x', 'a', 'c'], hidden: ['b', 'zz'] }, ids), { order: ['c', 'a', 'b'], hidden: ['b'] });
+  assert.deepEqual(normalizeLayout(null, ids), { order: ids, hidden: [] });
+  assert.deepEqual(normalizeLayout({ order: 'nope', hidden: 3 }, ids), { order: ids, hidden: [] });
 });

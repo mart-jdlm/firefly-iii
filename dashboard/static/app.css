@@ -388,3 +388,23 @@ body.loading::before{content:"";position:fixed;left:0;top:0;height:3px;width:40%
 .dv .empty{padding:18px 0;text-align:left;line-height:1.5}
 @media(max-width:560px){.m-hide{display:none}}
 #iPositions .name,#iPositions .name small{white-space:normal}
+
+/* lot 3: line detail, short charts */
+.chart.short{height:180px}
+.md-box.wide{width:min(640px,100%)}
+.line-chart{position:relative;height:240px;margin:8px 0 14px}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;margin:0 0 6px;font-size:14px}
+.facts dt{color:var(--mute)}.facts dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+
+/* lot 3: customisable overview, gestures */
+#ovCards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px}
+#ovCards>[data-card=alerts]{grid-column:1/-1}
+#ovCards>.off{display:none!important}
+.ov-tools{display:flex;justify-content:flex-end;margin-bottom:8px}
+@media(max-width:760px){#ovCards{grid-template-columns:minmax(0,1fr)}}
+.lay{display:flex;flex-direction:column;margin:10px 0 4px}
+.lay-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.lay-row:first-child{border-top:0}
+.lay-row label{display:flex;align-items:center;gap:8px;cursor:pointer}.lay-row span{display:flex;gap:6px}
+.lay-row .icon{background:var(--soft);box-shadow:none}
+#ptr{position:fixed;left:50%;top:10px;transform:translate(-50%,-80px);z-index:95;background:var(--card);color:var(--fg);box-shadow:0 6px 24px #0003;border-radius:99px;padding:8px 16px;font-size:13px;font-weight:600;transition:transform .15s;pointer-events:none}
+#ptr.on{transform:translate(-50%,0)}

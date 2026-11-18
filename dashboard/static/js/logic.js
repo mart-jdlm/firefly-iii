@@ -251,3 +251,45 @@ export function diversify(positions, cash, breakdown, axis) {
     .sort((a, b) => (a.name === UNCLASSED) - (b.name === UNCLASSED) || b.value - a.value);
   return { rows, total: rows.reduce((a, r) => a + r.value, 0) };
 }
+
+/* ---------- pace of spending, expected dividends ---------- */
+
+/**
+ * Cumulative spending of a month, day by day: element i is what was spent from day 1 to day i + 1.
+ * Only withdrawals count. `days` is how many days to give (the month's length by default; the
+ * current day for a month in progress).
+ */
+export function cumulativeSpend(txs, month, days) {
+  const [y, m] = month.split('-').map(Number), n = days ?? new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const perDay = Array(n).fill(0);
+  for (const t of txs) {
+    if (t.type !== 'withdrawal' || !t.date.startsWith(month)) continue;
+    const d = +t.date.slice(8, 10);
+    if (d >= 1 && d <= n) perDay[d - 1] += t.amount;
+  }
+  let total = 0;
+  return perDay.map(v => (total += v));
+}
+
+/**
+ * What the dividends of the last 12 months suggest for the next 12: each one is expected again a
+ * year later. Returns what was received over the last 12 months and the expected payments (by date); the expected total is the received one. An estimate from last year only: companies change what they pay.
+ */
+export function dividendOutlook(dividends, todayIso) {
+  const shift = (iso, years) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCFullYear(d.getUTCFullYear() + years); return d.toISOString().slice(0, 10); };
+  const since = shift(todayIso, -1);
+  const lastYear = dividends.filter(d => d.date > since && d.date <= todayIso);
+  const expected = lastYear.map(d => ({ date: shift(d.date, 1), amount: d.amount })).sort((a, b) => a.date.localeCompare(b.date));
+  const received = lastYear.reduce((a, d) => a + d.amount, 0);
+  return { received, expected };
+}
+
+/**
+ * A saved layout of the overview ({order, hidden}) made valid against the cards that exist: unknown
+ * ids are dropped, new cards are added at the end, and anything malformed gives the default.
+ */
+export function normalizeLayout(saved, ids) {
+  const order = Array.isArray(saved?.order) ? saved.order.filter((id, i, a) => ids.includes(id) && a.indexOf(id) === i) : [];
+  const hidden = Array.isArray(saved?.hidden) ? saved.hidden.filter((id, i, a) => ids.includes(id) && a.indexOf(id) === i) : [];
+  return { order: [...order, ...ids.filter(id => !order.includes(id))], hidden };
+}

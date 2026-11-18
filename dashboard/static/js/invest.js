@@ -4,7 +4,8 @@ import { CATS, GROUPS } from './consts.js';
 import { $, bubble, css, el, fail, mk, pill, skel } from './dom.js';
 import { eur, eur2, mlabel } from './format.js';
 import { all, memo, page, shown } from './state.js';
-import { diversify, lineGain, simulate, sortPositions, twr, UNCLASSED, xirr } from './logic.js';
+import { openLine } from './line.js';
+import { dividendOutlook, diversify, lineGain, simulate, sortPositions, twr, UNCLASSED, xirr } from './logic.js';
 
 /* Share of the assets that is invested, next to the cash and savings, so the PEA is read in context. */
 function renderShare(){
@@ -48,6 +49,7 @@ export async function renderInvest(){
 
  $('iLegB').hidden=!bench;if(bench)$('iLegBn').textContent=bench.label;
  renderPerf({value,flows,bench,todayIso,worth,dividends:d.dividends||[],fees:d.fees||[]});
+ renderDividends(d.dividends||[],todayIso);
 
  // positions, allocation and diversification
  const empty=!d.positions.length;
@@ -83,7 +85,7 @@ function renderPositions(d){
   const day=col(p.day===null?'':`${p.day>0?'+':p.day<0?'−':''}${Math.abs(p.day).toFixed(2).replace('.',',')} %`,'64px','m-hide'+(p.day===null?'':p.day>0?' up':p.day<0?' down':''));
   const gain=hasCost?[col(g?pc1(g.pct):'','72px',g?(g.pct>0?'up':g.pct<0?'down':''):'')]:[];
   if(g)gain[0].title='Plus-value '+signed(g.amount);
-  return el('div',{className:'item'},[bubble(p.symbol),el('span',{className:'name'},[p.symbol,sub]),day,...gain,el('span',{className:'amt fix',textContent:p.value===null?'—':eur2(p.value)})]);
+  return el('div',{className:'item click',tabIndex:0,role:'button','aria-label':`Détail de ${p.symbol}`,onclick:()=>openLine(p),onkeydown:e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openLine(p)}}},[bubble(p.symbol),el('span',{className:'name'},[p.symbol,sub]),day,...gain,el('span',{className:'amt fix',textContent:p.value===null?'—':eur2(p.value)})]);
  });
  $('iPositions').replaceChildren(...(rowsEl.length?rowsEl:[el('div',{className:'empty',textContent:`Liquidités : ${eur2(d.cash)}`})]));
 }
@@ -106,6 +108,21 @@ function renderDiv(d){
   const track=el('div',{className:'track'},[el('span')]);track.firstChild.style.cssText=`width:${Math.max(share*100,1)}%;background:${color}`;
   return el('div',{className:'dvrow'},[el('div',{className:'row'},[el('b',{textContent:r.name}),el('span',{textContent:`${(share*100).toFixed(share<.1?1:0).replace('.',',')} % · ${eur2(r.value)}`})]),track]);
  }):[el('div',{className:'empty',textContent:'Rien à répartir'})]));
+}
+
+/* Dividends: what the last 12 months paid, and what that suggests for the next 12 (an estimate from last year only). */
+function renderDividends(dividends,todayIso){
+ const card=$('iDivid');card.hidden=!dividends.length;if(card.hidden)return;
+ const{received,expected}=dividendOutlook(dividends,todayIso);
+ $('iDividNote').textContent=expected.length?`${eur2(received)} reçus sur les 12 derniers mois. Si les versements se répètent, ${eur2(received)} sont attendus sur les 12 prochains : une estimation d'après l'an dernier.`:'Aucun dividende sur les 12 derniers mois.';
+ const start=new Date(todayIso+'T12:00:00Z'),months=Array.from({length:12},(_,k)=>{const d=new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+k,1));return d.toISOString().slice(0,7)});
+ const by=Object.fromEntries(months.map(m=>[m,0]));expected.forEach(e=>{if(e.date.slice(0,7) in by)by[e.date.slice(0,7)]+=e.amount});
+ card.querySelector('.chart').hidden=!expected.length;
+ if(expected.length)mk('cDivid',{type:'bar',data:{labels:months.map(m=>mlabel(m)),datasets:[{data:months.map(m=>by[m]),backgroundColor:css('--c3'),borderRadius:6,borderSkipped:false,maxBarThickness:22}]},
+  options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{backgroundColor:css('--fg'),titleColor:css('--bg'),bodyColor:css('--bg'),padding:10,cornerRadius:10,callbacks:{label:c=>` ${eur2(c.parsed.y)} attendus`}}},
+   scales:{x:{grid:{display:false},border:{display:false},ticks:{color:css('--mute'),maxRotation:0,autoSkip:true,maxTicksLimit:12}},y:{beginAtZero:true,grid:{color:css('--line')},border:{display:false},ticks:{color:css('--mute'),callback:v=>eur(v),maxTicksLimit:4}}}}});
+ const fmt=iso=>new Intl.DateTimeFormat('fr-FR',{day:'numeric',month:'long',year:'numeric'}).format(new Date(iso+'T12:00:00'));
+ $('iDividRows').replaceChildren(...expected.slice(0,6).map(e=>el('div',{className:'item'},[el('span',{className:'name',textContent:fmt(e.date)}),el('span',{className:'amt',textContent:'+'+eur2(e.amount)}),])));
 }
 
 $('iSort').addEventListener('click',e=>{const b=e.target.closest('button');if(!b||!memo.pea)return;sortBy=b.dataset.s;renderPositions(memo.pea)});

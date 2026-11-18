@@ -4,7 +4,7 @@ import { CATS, GCOL } from './consts.js';
 import { $, css, el, fail, mk, pill, skel } from './dom.js';
 import { avg, clean, eur, eur2, mlabel, sign } from './format.js';
 import { all, charts, gotoBudget, gotoCategory, gotoTransactions, isCurrent, memo, page, sel, setMonth, shown } from './state.js';
-import { yoyRows } from './logic.js';
+import { cumulativeSpend, yoyRows } from './logic.js';
 
 function renderFlow(){
  const rows=shown(),labels=rows.map(r=>mlabel(r.month));
@@ -28,7 +28,7 @@ export function renderBudget(){
  const vs=(v,k,low)=>{if(!prev.length||isCurrent(sel))return[isCurrent(sel)?'mois partiel':'',null];const d=v-avg(prev.map(p=>p[k]));return[`${sign(d)} vs moy. ${prev.length} mois`,low?d<=0:d>=0]};
  pill('dIncome',...vs(r.earned,'earned',false));pill('dSpend',...vs(r.spent,'spent',true));
  const[t,g]=vs(r.saved,'saved',false);pill('dSave',rate!==null&&!isCurrent(sel)?`${rate} % des revenus`:t,rate!==null&&!isCurrent(sel)?(r.saved>=0):g);
- renderFlow();renderSankey(r);renderBudgets(r.month);renderYoy(r);renderBig(r.month);
+ renderFlow();renderSankey(r);renderBudgets(r.month);renderYoy(r);renderBig(r.month);renderPace(r.month);
 
  const entries=Object.entries(r.expenses).sort((a,b)=>b[1]-a[1]),total=entries.reduce((a,[,v])=>a+v,0);
  $('donutTotal').textContent=eur(total);
@@ -143,4 +143,31 @@ async function renderBig(month){
  const top=data.filter(t=>t.type==='withdrawal').sort((a,b)=>b.amount-a.amount).slice(0,5);
  box.replaceChildren(...(top.length?top.map(t=>el('div',{className:'item click',title:'Voir la transaction',onclick:()=>gotoTransactions({q:t.description,type:'expense'})},
   [el('span',{className:'name'},[clean(t.description),el('small',{textContent:`${t.date.slice(8)}/${t.date.slice(5,7)}${t.category?' · '+t.category:''}`})]),el('span',{className:'amt',textContent:eur2(t.amount)})])):[el('div',{className:'empty',textContent:'Aucune dépense ce mois-ci'})]));
+}
+
+
+/* Cumulative spending of the month against the previous one, from the same transactions as the Transactions tab. */
+async function renderPace(month){
+ const i=all.months.findIndex(m=>m.month===month),prevMonth=i>0?all.months[i-1].month:null;
+ $('pace').hidden=false;
+ let cur,prev=[];
+ try{
+  cur=memo.tx[month]||(memo.tx[month]=await json('/api/transactions?month='+month));
+  if(prevMonth)prev=memo.tx[prevMonth]||(memo.tx[prevMonth]=await json('/api/transactions?month='+prevMonth));
+ }catch(e){$('pace').hidden=true;return}
+ if(page!=='budget'||month!==all.months[sel].month)return;
+ const day=isCurrent(sel)?new Date().getDate():null;
+ const now=cumulativeSpend(cur,month,day??undefined),before=cumulativeSpend(prev,prevMonth||month),len=Math.max(now.length,before.length,cumulativeSpend([],month).length);
+ const pm=prevMonth?mlabel(prevMonth,true):'';
+ $('paceCur').textContent=mlabel(month,true);$('pacePrev').textContent=prevMonth?pm:'';$('pacePrev').parentElement.hidden=!prevMonth;
+ const total=now[now.length-1]||0,same=prevMonth?before[Math.min(now.length,before.length)-1]||0:null;
+ $('paceNote').textContent=same===null?`${eur(total)} dépensés ce mois-ci.`
+  :day?`Au ${day}, tu as dépensé ${eur(total)}, contre ${eur(same)} à la même date en ${pm} (${sign(total-same)}).`
+  :`${eur(total)} dépensés, contre ${eur(same)} en ${pm} (${sign(total-same)}).`;
+ mk('cPace',{type:'line',data:{labels:Array.from({length:len},(_,k)=>k+1),datasets:[
+  {label:mlabel(month,true),data:now,borderColor:css('--accent'),backgroundColor:css('--accent2'),fill:true,tension:.15,borderWidth:2.5,pointRadius:0,pointHoverRadius:5},
+  ...(prevMonth?[{label:pm,data:before,borderColor:css('--c7'),borderDash:[5,4],tension:.15,borderWidth:2,pointRadius:0,pointHoverRadius:4}]:[])]},
+  options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
+   plugins:{legend:{display:false},tooltip:{backgroundColor:css('--fg'),titleColor:css('--bg'),bodyColor:css('--bg'),padding:10,cornerRadius:10,callbacks:{title:c=>'Jour '+c[0].label,label:c=>` ${c.dataset.label} : ${eur(c.parsed.y)}`}}},
+   scales:{x:{grid:{display:false},border:{display:false},ticks:{color:css('--mute'),maxRotation:0,autoSkip:true,maxTicksLimit:8}},y:{beginAtZero:true,grid:{color:css('--line')},border:{display:false},ticks:{color:css('--mute'),callback:v=>eur(v),maxTicksLimit:5}}}}});
 }

@@ -53,11 +53,13 @@
       <button data-m="6" aria-pressed="false">6 mois</button><button data-m="12" aria-pressed="true">1 an</button><button data-m="24" aria-pressed="false">2 ans</button>
      </div>
     </div>
-    <section class="card mb" id="alerts" hidden><h3>Alertes</h3><div class="list" id="alertList"></div></section>
-    <div class="two">
-     <section class="card"><h3>Répartition</h3><div class="seg" id="seg"></div><div class="list" id="groups"></div></section>
-     <section class="card"><h3>À retenir</h3><div class="list insights" id="insights"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></section>
+    <div id="ovCards">
+     <section class="card" id="alerts" data-card="alerts" hidden><h3>Alertes</h3><div class="list" id="alertList"></div></section>
+     <section class="card" data-card="split"><h3>Répartition</h3><div class="seg" id="seg"></div><div class="list" id="groups"></div></section>
+     <section class="card" data-card="insights"><h3>À retenir</h3><div class="list insights" id="insights"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></section>
+     <section class="card" data-card="bills"><h3>Prochains prélèvements</h3><div class="list" id="ovBills"><div class="skel"></div><div class="skel"></div></div></section>
     </div>
+    <div class="ov-tools"><button class="btn small" id="ovEdit" type="button">Personnaliser</button></div>
    </section>
 
    <!-- Patrimoine -->
@@ -88,6 +90,9 @@
     <section class="card mb" id="yoy" hidden><h3>Comparé à l'an dernier</h3><p class="note" id="yoyNote">&nbsp;</p><div class="list yoy" id="yoyRows"></div></section>
     <section class="card mb"><h3>Flux d'argent</h3><p class="note">D'où vient l'argent et où il va : revenus, budgets, puis catégories.</p>
      <div class="sankey-wrap"><svg id="sankey" role="img" aria-label="Diagramme des flux : revenus, budgets et catégories de dépenses"></svg></div></section>
+    <section class="card mb" id="pace"><h3>Rythme des dépenses</h3><p class="note" id="paceNote">&nbsp;</p>
+     <div class="chart"><canvas id="cPace" role="img" aria-label="Dépenses cumulées du mois comparées au mois précédent"></canvas></div>
+     <div class="legend"><span><i style="background:var(--accent)"></i><span id="paceCur"></span></span><span><i style="background:var(--c7)"></i><span id="pacePrev"></span></span></div></section>
     <section class="card mb"><h3>Budgets du mois</h3><p class="note">Plafonds définis dans Firefly III.</p><div class="list" id="budgets"><div class="skel"></div><div class="skel"></div></div></section>
     <div class="two">
      <section class="card"><h3>Dépenses par catégorie</h3><p class="note" id="spendNote">&nbsp;</p>
@@ -142,6 +147,9 @@
      <div class="chart"><canvas id="cPea" role="img" aria-label="Valeur du PEA et versements cumulés"></canvas></div>
      <div class="legend"><span><i style="background:var(--accent)"></i>Valeur</span><span><i style="background:var(--c7)"></i>Versements</span><span id="iLegB" hidden><i style="background:var(--c3)"></i>Même argent en <span id="iLegBn"></span></span></div></section>
     <section class="card mb" id="iPerf"><h3>Performance</h3><p class="note" id="iPerfNote">&nbsp;</p><div class="list" id="iPerfRows"></div></section>
+    <section class="card mb" id="iDivid" hidden><h3>Dividendes</h3><p class="note" id="iDividNote">&nbsp;</p>
+     <div class="chart short"><canvas id="cDivid" role="img" aria-label="Dividendes attendus sur les 12 prochains mois"></canvas></div>
+     <div class="list" id="iDividRows"></div></section>
     <div id="iHoldings">
      <section class="card mb"><div class="cardhead"><h3>Positions</h3><div class="seg2" id="iSort" role="group" aria-label="Trier les positions"><button type="button" data-s="value" aria-pressed="true">Valeur</button><button type="button" data-s="gain" aria-pressed="false">Plus-value</button><button type="button" data-s="day" aria-pressed="false">Jour</button></div></div>
       <p class="note" id="iNote">&nbsp;</p><div class="list colhead" id="iCols"></div><div class="list" id="iPositions"></div></section>

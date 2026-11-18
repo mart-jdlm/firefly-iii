@@ -1,8 +1,8 @@
 /* Overview page: net worth, split, insights and alerts. */
 import { json } from './api.js';
 import { GROUPS } from './consts.js';
-import { $, css, el, mk, pill } from './dom.js';
-import { eur, mlabel, sign } from './format.js';
+import { $, css, el, fail, mk, pill } from './dom.js';
+import { eur, eur2, mlabel, sign } from './format.js';
 import { NONE, all, charts, gotoTransactions, memo, page, range, setSel, shown } from './state.js';
 import { computeAlerts, computeInsights, extraAlerts } from './logic.js';
 
@@ -35,7 +35,7 @@ export function renderOverview(){
   const d=el('span',{className:'dot'});d.style.background=`var(${c})`;
   return el('div',{className:'item'},[d,el('span',{className:'name',textContent:n}),el('span',{className:'pct',textContent:last[k]>0?Math.round(last[k]/total*100)+' %':''}),el('span',{className:'amt',textContent:eur(last[k])})])}));
 
- renderInsights();renderAlerts();
+ renderInsights();renderAlerts();renderBills();
 }
 
 async function renderInsights(){
@@ -63,4 +63,16 @@ function openLink({month,cat,q}){
  const i=all.months.findIndex(m=>m.month===month);
  if(i>=0)setSel(i);
  gotoTransactions({cat:cat==='none'?NONE:cat||'',q:q||''});
+}
+
+
+/* the next four payments, from the same bills as the Récurrent tab */
+async function renderBills(){
+ let d=null;
+ try{d=memo.bills||(memo.bills=await json('/api/bills'))}catch(e){fail($('ovBills'),'Prélèvements indisponibles',renderBills);return}
+ if(page!=='overview')return;
+ const today=new Date();today.setHours(12,0,0,0);
+ const days=s=>Math.round((new Date(s+'T12:00:00')-today)/864e5);
+ $('ovBills').replaceChildren(...(d.upcoming.length?d.upcoming.slice(0,4).map(u=>{const n=days(u.date);
+  return el('div',{className:'item'},[el('span',{className:'name'},[u.name,el('small',{textContent:n<=0?"aujourd'hui":n===1?'demain':`dans ${n} jours`})]),el('span',{className:'amt',textContent:eur2(u.amount)})])}):[el('div',{className:'empty',textContent:'Rien de prévu'})]));
 }

@@ -130,6 +130,27 @@ class BreakdownTests(unittest.TestCase):
             self.assertIsNone(invest.read_breakdown())
 
 
+class LineHistoryTests(unittest.TestCase):
+    LINES = [{"symbol": "CW8.PA", "quantity": 2.0, "label": "", "pru": None}, {"symbol": "especes", "quantity": 5.0, "label": "", "pru": None}]
+
+    def test_only_symbols_of_the_file_are_served(self):
+        with mock.patch.object(invest, "read_positions", return_value=self.LINES), mock.patch.object(invest, "yahoo_history") as history:
+            for symbol, span in (("AAPL", "1y"), ("especes", "1y"), ("CW8.PA", "10y")):
+                with self.assertRaises(ValueError, msg=symbol + span):
+                    invest.line_history(symbol, span)
+            history.assert_not_called()
+        with mock.patch.object(invest, "read_positions", return_value=None), self.assertRaises(ValueError):
+            invest.line_history("CW8.PA", "1y")
+
+    def test_prices_are_cut_to_the_period(self):
+        today = datetime.date.today()
+        old, recent = (today - datetime.timedelta(days=60)).isoformat(), (today - datetime.timedelta(days=5)).isoformat()
+        with mock.patch.object(invest, "read_positions", return_value=self.LINES), mock.patch.object(invest, "yahoo_history", return_value=[[old, 1.0], [recent, 2.0]]):
+            self.assertEqual(invest.line_history("CW8.PA", "1m")["prices"], [[recent, 2.0]])
+        with mock.patch.object(invest, "read_positions", return_value=self.LINES), mock.patch.object(invest, "yahoo_history", return_value=None), self.assertRaises(ValueError):
+            invest.line_history("CW8.PA", "1m")
+
+
 class ApiLayerTests(unittest.TestCase):
     def test_api_all_follows_every_page(self):
         pages = {1: {"data": [1, 2], "meta": {"pagination": {"total_pages": 3}}}, 2: {"data": [3], "meta": {"pagination": {"total_pages": 3}}},

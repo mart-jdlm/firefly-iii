@@ -180,6 +180,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, json.dumps(ttlcache.cached("goals", goals.goals_data)).encode(), "application/json")
             if url.path == "/api/pea":
                 return self.reply(200, json.dumps(ttlcache.cached("pea", invest.pea_data)).encode(), "application/json")
+            if url.path == "/api/history":
+                query = urllib.parse.parse_qs(url.query)
+                symbol, span = query.get("symbol", [""])[0], query.get("span", ["1y"])[0]
+                return self.reply(200, json.dumps(ttlcache.cached(f"history{symbol}{span}", lambda: invest.line_history(symbol, span))).encode(),
+                                  "application/json")
             if url.path == "/sw.js":  # service worker: must be served from the root, always revalidated
                 return self.serve("static/sw.js", "application/javascript")
             if re.fullmatch(r"/js/[a-z0-9-]+\.js", url.path):  # the page's ES modules

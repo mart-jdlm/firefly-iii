@@ -16,6 +16,8 @@ import './add.js';
 import { markMore } from './tabs.js';
 import './privacy.js';
 import './theme.js';
+import './layout.js';
+import './gestures.js';
 import './keys.js';
 import './search.js';
 
