@@ -8,6 +8,8 @@ import { chatToggle } from './chat.js';
 import { matches } from './logic.js';
 import { togglePrivate } from './privacy.js';
 import { openAdd } from './add.js';
+import { cycleTheme } from './theme.js';
+import { openHelp } from './keys.js';
 
 let root = null, input, list, items = [], active = 0, seq = 0, timer = 0, opener = null;
 
@@ -16,6 +18,8 @@ const actions = [
   ['＋', 'Ajouter une dépense ou un revenu', () => openAdd()],
   ['⟳', 'Actualiser les chiffres', () => $('refresh').click()],
   ['🙈', 'Masquer ou afficher les montants', togglePrivate],
+  ['◐', 'Changer de thème (automatique, clair, sombre)', cycleTheme],
+  ['⌨', 'Raccourcis clavier', openHelp],
   ['💬', "Ouvrir l'assistant", () => chatToggle(true)],
 ];
 

@@ -1,7 +1,7 @@
 /* Budget page: month tiles, cash-flow diagram, budgets, categories, year over year. */
 import { json } from './api.js';
 import { CATS, GCOL } from './consts.js';
-import { $, css, el, fail, mk, pill } from './dom.js';
+import { $, css, el, fail, mk, pill, skel } from './dom.js';
 import { avg, clean, eur, eur2, mlabel, sign } from './format.js';
 import { all, charts, gotoBudget, gotoCategory, gotoTransactions, isCurrent, memo, page, sel, setMonth, shown } from './state.js';
 import { yoyRows } from './logic.js';
@@ -74,6 +74,7 @@ function renderYoy(r){
 async function renderBudgets(month){
  const box=$('budgets');
  let data=memo.bud[month];
+ if(!data)box.replaceChildren(...skel(2));
  try{if(!data)data=memo.bud[month]=await json('/api/budgets?month='+month)}catch(e){fail(box,'Budgets indisponibles',()=>renderBudgets(month));return}
  if(month!==all.months[sel].month)return;
  data=data.filter(b=>b.limit!==null||b.spent>0);

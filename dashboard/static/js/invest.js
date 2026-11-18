@@ -1,13 +1,26 @@
 /* Placements page: PEA value, contributions, positions. */
 import { json } from './api.js';
-import { CATS } from './consts.js';
-import { $, bubble, css, el, fail, mk, pill } from './dom.js';
+import { CATS, GROUPS } from './consts.js';
+import { $, bubble, css, el, fail, mk, pill, skel } from './dom.js';
 import { eur, eur2, mlabel } from './format.js';
 import { all, memo, page, shown } from './state.js';
 import { simulate, twr, xirr } from './logic.js';
 
+/* Share of the assets that is invested, next to the cash and savings, so the PEA is read in context. */
+function renderShare(){
+ const last=all.months[all.months.length-1].net_worth,groups=GROUPS.filter(([k])=>k!=='dettes'&&last[k]>0),total=groups.reduce((a,[k])=>a+last[k],0);
+ $('iShare').hidden=!total;if(!total)return;
+ const pc=v=>Math.round(v/total*100),inv=last.investissements>0?last.investissements:0;
+ $('iShareNote').textContent=`Sur ${eur(total)} d'actifs, ${pc(inv)} % sont investis en bourse ; le reste est de l'argent disponible ou de l'épargne.`;
+ $('iShareSeg').replaceChildren(...groups.map(([k,n,c])=>{const s=el('span');s.style.cssText=`flex:${last[k]};background:var(${c})`;s.title=`${n} ${eur(last[k])}`;return s}));
+ $('iShareRows').replaceChildren(...groups.map(([k,n,c])=>{const d=el('span',{className:'dot'});d.style.background=`var(${c})`;
+  return el('div',{className:'item'},[d,el('span',{className:'name',textContent:n}),el('span',{className:'pct',textContent:pc(last[k])+' %'}),el('span',{className:'amt',textContent:eur(last[k])})])}));
+}
+
 export async function renderInvest(){
+ renderShare();
  let d=memo.pea;
+ if(!d)$('iPositions').replaceChildren(...skel(3));
  try{if(!d)d=memo.pea=await json('/api/pea')}catch(e){$('iValue').textContent='—';$('iHoldings').hidden=false;$('iEmpty').hidden=true;fail($('iPositions'),'Cours indisponibles',renderInvest);return}
  if(page!=='invest')return;
  const priced=d.positions.filter(p=>p.value!==null),holdings=priced.reduce((a,p)=>a+p.value,0);

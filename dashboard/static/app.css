@@ -1,13 +1,20 @@
 :root{color-scheme:light dark;
- --bg:#f3f4f8;--card:#fff;--fg:#0f1222;--mute:#7a8094;--line:#eceef4;--soft:#f5f6fa;
- --accent:#4f5bd5;--accent2:#4f5bd522;--up:#12a36b;--upbg:#12a36b1a;--down:#e5484d;--downbg:#e5484d1a;--warnbg:#e5a42b22;--warn:#c27d0e;
+ --bg:#f3f4f8;--card:#fff;--fg:#0f1222;--mute:#5f667a;--line:#eceef4;--soft:#f5f6fa;
+ --accent:#4f5bd5;--accent2:#4f5bd522;--up:#0b7a4f;--upbg:#0b7a4f1a;--down:#c8282d;--downbg:#c8282d1a;--warnbg:#e5a42b22;--warn:#8f5a00;
  --shadow:0 1px 2px #0f12220a,0 8px 30px #0f12220a;
  --c1:#4f5bd5;--c2:#f08a4b;--c3:#12a36b;--c4:#b05fe0;--c5:#e5b429;--c6:#2fb4cf;--c7:#9aa1b5}
-@media(prefers-color-scheme:dark){:root{
+/* dark: follows the system unless the theme button forces light or dark (data-theme on <html>) */
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){
  --bg:#0b0d14;--card:#141824;--fg:#eceef6;--mute:#8d94aa;--line:#222838;--soft:#1a1f2d;
  --accent:#7b86f2;--accent2:#7b86f230;--up:#3ccf91;--upbg:#3ccf9122;--down:#f2706f;--downbg:#f2706f22;--warnbg:#efc05022;--warn:#efc050;
  --shadow:none;
  --c1:#7b86f2;--c2:#f59a63;--c3:#3ccf91;--c4:#c58aea;--c5:#efc050;--c6:#4cc3d9;--c7:#8d94aa}}
+:root[data-theme=dark]{color-scheme:dark;
+ --bg:#0b0d14;--card:#141824;--fg:#eceef6;--mute:#8d94aa;--line:#222838;--soft:#1a1f2d;
+ --accent:#7b86f2;--accent2:#7b86f230;--up:#3ccf91;--upbg:#3ccf9122;--down:#f2706f;--downbg:#f2706f22;--warnbg:#efc05022;--warn:#efc050;
+ --shadow:none;
+ --c1:#7b86f2;--c2:#f59a63;--c3:#3ccf91;--c4:#c58aea;--c5:#efc050;--c6:#4cc3d9;--c7:#8d94aa}
+:root[data-theme=light]{color-scheme:light}
 *{box-sizing:border-box}
 html{overflow-x:hidden}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,"Inter","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
@@ -355,3 +362,17 @@ a:focus-visible,button:focus-visible,[tabindex]:focus-visible,select:focus-visib
  .chat textarea{font-size:16px}
 }
 body.chat-open{overflow:hidden}
+
+/* lot 1: theme button, shortcuts help, skip link, loading bar, global reduced motion */
+.skip{position:absolute;left:12px;top:-60px;z-index:100;background:var(--accent);color:#fff;padding:10px 16px;border-radius:12px;font-weight:650;text-decoration:none}
+.skip:focus{top:12px}
+.side-foot .icon{width:30px;height:30px;font-size:14px}
+.side-foot .tools{display:flex;gap:6px}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:14px 0 4px;align-items:center}
+.keys dt{white-space:nowrap}.keys dd{margin:0;color:var(--mute);font-size:14px}
+kbd{display:inline-block;min-width:22px;text-align:center;padding:2px 7px;border-radius:7px;border:1px solid var(--line);background:var(--soft);font:600 12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)}
+body.loading::before{content:"";position:fixed;left:0;top:0;height:3px;width:40%;background:var(--accent);z-index:90;animation:bar 1.1s ease-in-out infinite}
+@keyframes bar{from{transform:translateX(-100%)}to{transform:translateX(260%)}}
+#err .btn{margin-left:10px}
+.share .seg{margin:14px 0 10px}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}

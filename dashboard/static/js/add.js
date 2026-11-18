@@ -60,6 +60,6 @@ function closeAdd() {
 addEventListener('keydown', e => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
   if (e.key === 'Escape' && root) closeAdd();
-  else if (e.key === 'n' && !typing && !root && !e.ctrlKey && !e.metaKey && !e.altKey && !document.querySelector('.sr')) { e.preventDefault(); openAdd(); }
+  else if (e.key === 'n' && !typing && !root && !e.ctrlKey && !e.metaKey && !e.altKey && !document.querySelector('.sr, .md')) { e.preventDefault(); openAdd(); }
 });
 $('addBtn').onclick = openAdd;

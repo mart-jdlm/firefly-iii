@@ -4,7 +4,7 @@ import { renderAssets } from './assets.js';
 import { renderBudget } from './budget.js';
 import { chatToggle } from './chat.js';
 import { PAGES } from './consts.js';
-import { $ } from './dom.js';
+import { $, el } from './dom.js';
 import { renderFuture } from './future.js';
 import { renderInvest } from './invest.js';
 import { renderOverview } from './overview.js';
@@ -15,6 +15,8 @@ import { renderTransactions } from './transactions.js';
 import './add.js';
 import { markMore } from './tabs.js';
 import './privacy.js';
+import './theme.js';
+import './keys.js';
 import './search.js';
 
 function route(){
@@ -23,7 +25,7 @@ function route(){
  if(page==='transactions'&&was!=='transactions'&&!nav.keep)resetFilters();
  nav.keep=false;
  document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!=='p-'+page);
- document.querySelectorAll('#nav a,#tabbar a,#moreSheet a').forEach(a=>a.classList.toggle('on',a.dataset.page===page));
+ document.querySelectorAll('#nav a,#tabbar a,#moreSheet a').forEach(a=>{const on=a.dataset.page===page;a.classList.toggle('on',on);if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
  markMore(page);
  $('pageTitle').textContent=PAGES[page];document.title=PAGES[page]+' · Cairn';
  $('monthnav').hidden=!(page==='budget'||page==='transactions');
@@ -64,7 +66,7 @@ async function load(refresh,keep){
   setSel(i>=0?i:Math.max(0,all.months.length-2)); // last complete month
   $('err').style.display='none';
   renderPage();
- }catch(e){if(!keep||!all){$('err').textContent='Impossible de charger les données : '+e.message;$('err').style.display='block'}}
+ }catch(e){if(!keep||!all){$('err').replaceChildren('Impossible de charger les données : '+e.message,el('button',{className:'btn small',type:'button',textContent:'Réessayer',onclick:()=>load(true)}));$('err').style.display='block'}}
  finally{document.body.classList.remove('loading');stamp()}
 }
 

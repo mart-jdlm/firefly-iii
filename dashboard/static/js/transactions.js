@@ -62,8 +62,8 @@ export async function renderTransactions(){
    const det=el('div',{className:'det',hidden:true});
    det.innerHTML=`<b>Libellé</b> : ${esc(t.description)}<br><b>${esc(t.source)}</b> → <b>${esc(t.destination)}</b>`+(t.notes?`<br><b>Note</b> : ${esc(t.notes)}`:'');
    if(k!=='transfer')det.append(editor(t));
-   const row=el('div',{className:'tx'},[bubble(k==='transfer'?'virement':t.category),el('div',{className:'name'},[el('b',{textContent:clean(t.description)}),el('small',{textContent:sub})]),amt]);
-   row.onclick=()=>det.hidden=!det.hidden;out.push(row,det);
+   const row=el('div',{className:'tx',tabIndex:0,role:'button','aria-expanded':'false'},[bubble(k==='transfer'?'virement':t.category),el('div',{className:'name'},[el('b',{textContent:clean(t.description)}),el('small',{textContent:sub})]),amt]);
+   const toggle=()=>{det.hidden=!det.hidden;row.setAttribute('aria-expanded',String(!det.hidden))};row.onclick=toggle;row.onkeydown=e=>{if(e.target===row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();toggle()}};out.push(row,det);
   });
  });
  $('txList').replaceChildren(...out);

@@ -10,7 +10,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Cairn">
 <link rel="stylesheet" href="/app.css">
+<script>try{var t=localStorage.getItem("cairn-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
 </head><body>
+<a class="skip" href="#main">Aller au contenu</a>
 <div class="shell">
  <aside class="side">
   <div class="logo"><img class="mark" src="/logo.svg" alt="" width="30" height="30"><b>Cairn</b></div>
@@ -24,7 +26,7 @@
    <a href="#/review" data-page="review"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7M9 17h5"/></svg><span>Bilan</span></a>
    <a href="#/recurring" data-page="recurring"><svg viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg><span>Récurrent</span></a>
   </nav>
-  <div class="side-foot"><span id="stamp"></span><button class="icon" id="refresh" title="Actualiser" aria-label="Actualiser">↻</button></div>
+  <div class="side-foot"><span id="stamp"></span><span class="tools"><button class="icon" id="helpBtn" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier" aria-keyshortcuts="?">?</button><button class="icon" id="themeBtn" title="Thème" aria-label="Thème"></button><button class="icon" id="refresh" title="Actualiser" aria-label="Actualiser">↻</button></span></div>
  </aside>
 
  <div class="content">
@@ -39,7 +41,7 @@
   <div id="err" role="alert"></div>
   <div id="offline" role="status" hidden>Hors ligne : ces chiffres sont ceux de la dernière connexion.</div>
 
-  <main id="main">
+  <main id="main" tabindex="-1">
    <!-- Vue d'ensemble -->
    <section class="page" id="p-overview">
     <div class="card hero mb">
@@ -135,6 +137,7 @@
      <div class="card tile"><div class="tag">Versements</div><div class="kpi" id="iInvested">—</div><span class="pill">argent déposé</span></div>
      <div class="card tile"><div class="tag">Plus-value</div><div class="kpi" id="iGain">—</div><span class="pill" id="iGainPct">&nbsp;</span></div>
     </div>
+    <section class="card mb share" id="iShare"><h3>Part du patrimoine investie</h3><p class="note" id="iShareNote">&nbsp;</p><div class="seg" id="iShareSeg"></div><div class="list" id="iShareRows"></div></section>
     <section class="card mb"><h3>Valeur et versements</h3><p class="note">L'écart entre les deux courbes est ta plus-value (ou moins-value).</p>
      <div class="chart"><canvas id="cPea" role="img" aria-label="Valeur du PEA et versements cumulés"></canvas></div>
      <div class="legend"><span><i style="background:var(--accent)"></i>Valeur</span><span><i style="background:var(--c7)"></i>Versements</span><span id="iLegB" hidden><i style="background:var(--c3)"></i>Même argent en <span id="iLegBn"></span></span></div></section>
