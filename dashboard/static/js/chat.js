@@ -46,7 +46,11 @@ async function chatAsk(text){
  chatBusy=false;$('chatSend').disabled=false;msgs.scrollTop=msgs.scrollHeight;
 }
 
-export function chatToggle(open){$('chat').hidden=!open;$('chatOpen').hidden=open;if(open){if(!msgs.children.length)chatStart();$('chatQ').focus()}}
+// On a phone the keyboard shrinks the visible area but not the layout viewport: size the panel to what is visible.
+function fit(){const v=window.visualViewport;if(!v)return;$('chat').style.setProperty('--vvh',v.height+'px');$('chat').style.transform=`translateY(${v.offsetTop}px)`;msgs.scrollTop=msgs.scrollHeight}
+window.visualViewport?.addEventListener('resize',fit);window.visualViewport?.addEventListener('scroll',fit);
+
+export function chatToggle(open){document.body.classList.toggle('chat-open',open);if(open)fit();$('chat').hidden=!open;$('chatOpen').hidden=open;if(open){if(!msgs.children.length)chatStart();$('chatQ').focus()}}
 
 $('chatOpen').onclick=()=>chatToggle(true);$('chatClose').onclick=()=>chatToggle(false);$('chatNew').onclick=chatStart;
 

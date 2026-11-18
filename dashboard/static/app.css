@@ -346,3 +346,12 @@ a:focus-visible,button:focus-visible,[tabindex]:focus-visible,select:focus-visib
 /* a column of cards beside a taller one, and the simulator's controls in two even rows */
 .stack{display:flex;flex-direction:column;gap:16px;min-width:0}
 @media(min-width:900px){.ctrls{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* assistant on a phone: full screen above the tab bar and the Plus sheet, follows the visible area when the keyboard opens */
+@media(max-width:900px){
+ .chat{z-index:55;top:0;left:0;right:0;bottom:auto;width:100%;height:100vh;height:100dvh;height:var(--vvh,100dvh);overscroll-behavior:contain}
+ .chat header{padding-top:calc(16px + env(safe-area-inset-top))}
+ .msgs{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+ .chat textarea{font-size:16px}
+}
+body.chat-open{overflow:hidden}
