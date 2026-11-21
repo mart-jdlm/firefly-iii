@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Hourly health check of the server; mails when something is wrong (see the README, "Monitoring").
 
-Checks: every container is up and healthy, the web pages answer, the Firefly III backup and the
-nightly Nextcloud backup are recent, no job of the cron service keeps failing, the disk is not
+Checks: every container is up and healthy, the web pages answer, the Firefly III backup is recent, no job of the cron service keeps failing, the disk is not
 full. Mails once per set of problems (and once more when they are gone), not every hour.
 Standard library only; runs on the host.
 
@@ -24,9 +23,9 @@ from update import ROOT, read_env, send_text  # noqa: E402
 
 STATE = ROOT / "backups" / ".state"
 CONTAINERS = ["firefly_iii_core", "firefly_iii_db", "firefly_iii_importer", "firefly_iii_pico",
-              "firefly_iii_cron", "nextcloud_app", "nextcloud_db", "nextcloud_cron", "nextcloud_redis", "obsidian_couchdb"]
+              "firefly_iii_cron", "obsidian_couchdb"]
 PAGES = {"Firefly III": "http://127.0.0.1:8080/login", "Importer": "http://127.0.0.1:8181/",
-         "Pico": "http://127.0.0.1:8282/", "Nextcloud": "http://127.0.0.1:8484/status.php"}
+         "Pico": "http://127.0.0.1:8282/"}
 BACKUP_MAX_HOURS = 30   # the nightly jobs run every ~24 h; a missed day shows after 30 h
 FAILED_MAX_HOURS = 6    # a failing job is retried every 2 hours: 3 failures in a row is a problem
 DISK_MAX_PERCENT = 85
@@ -63,14 +62,6 @@ def problems() -> list[str]:
         if hours_since(marker.stat().st_mtime) > FAILED_MAX_HOURS:
             found.append(f"La tâche « {marker.stem} » échoue depuis {hours_since(marker.stat().st_mtime):.0f} h "
                          "(voir : docker logs firefly_iii_cron)")
-
-    # The root script /usr/local/sbin/nextcloud-backup.sh touches this file once the local copy is done.
-    # (systemd's own "Result" is reset by a reboot and says nothing about a run cut short by a crash.)
-    marker = Path("/var/backups/nextcloud/.last-success")
-    if not marker.exists():
-        found.append("Aucune sauvegarde Nextcloud réussie enregistrée (fichier-témoin absent)")
-    elif hours_since(marker.stat().st_mtime) > BACKUP_MAX_HOURS:
-        found.append(f"La dernière sauvegarde Nextcloud réussie date de {hours_since(marker.stat().st_mtime):.0f} h")
 
     obs = Path.home() / "server/obsidian-livesync/backups/.last-success"
     if not obs.exists() or hours_since(obs.stat().st_mtime) > BACKUP_MAX_HOURS:

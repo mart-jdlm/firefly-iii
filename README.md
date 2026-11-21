@@ -82,7 +82,7 @@ docker compose down                  # stop (volumes are kept)
 
 ### Updates
 
-Every image has a fixed version in `docker-compose.yml` (Pico follows its `dev` tag, pinned by digest), so `pull` never changes anything on its own. [update/update.py](update/update.py) (standard library only, run on the host) finds and applies new versions, for this stack and for Nextcloud (`../nextcloud`):
+Every image has a fixed version in `docker-compose.yml` (Pico follows its `dev` tag, pinned by digest), so `pull` never changes anything on its own. [update/update.py](update/update.py) (standard library only, run on the host) finds and applies new versions, for this stack:
 
 ```bash
 python3 update/update.py check          # what has a newer version
@@ -90,8 +90,8 @@ python3 update/update.py apply          # update, one image at a time, asking ea
 ```
 
 - **Notification:** a systemd user timer ([update/firefly-update.timer](update/firefly-update.timer)) runs `check --mail` every Saturday at 08:00 and e-mails the list, once per set of versions. Enable it with `bash update/install-timer.sh`. The mail uses the `MAIL_*` settings of `.env` (set them with `bash update/configurer-mail.sh`), to `MAIL_FROM` or `BILAN_TO`.
-- **`apply`:** backs Firefly III up first (`backup.sh`), edits `docker-compose.yml` (or pulls the moving tag for Nextcloud), runs `docker compose up -d --build`, waits until every container is healthy and the web page answers, and goes back to the previous version if it does not. A successful Firefly III update is committed (`git push origin master` to send it). It finds: Firefly III and the Data Importer (GitHub releases), MariaDB (same major), Pico (new `dev` build), and new builds of the moving Nextcloud, Redis and MariaDB tags.
-- **New major versions** (MariaDB 13, Nextcloud 36, Redis 8...) are only reported, never applied: read the release notes first and go one major at a time. Nextcloud is backed up every night at 03:30 by the root timer `nextcloud-backup.timer`; check that the last run succeeded before updating it.
+- **`apply`:** backs Firefly III up first (`backup.sh`), edits `docker-compose.yml` (or pulls the moving tag), runs `docker compose up -d --build`, waits until every container is healthy and the web page answers, and goes back to the previous version if it does not. A successful Firefly III update is committed (`git push origin master` to send it). It finds: Firefly III and the Data Importer (GitHub releases), MariaDB (same major), Pico (new `dev` build), and new builds of the moving Redis and MariaDB tags.
+- **New major versions** (MariaDB 13, Redis 8...) are only reported, never applied: read the release notes first and go one major at a time.
 
 MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its version changes.
 
@@ -99,7 +99,7 @@ MariaDB has `MARIADB_AUTO_UPGRADE=1`, so its system tables are upgraded when its
 
 Two scripts in [watchdog/](watchdog/) (standard library only, run on the host by systemd user timers) tell you when something silently stops working. They mail through the `MAIL_*` settings of `.env`. Enable both with `bash watchdog/install-timers.sh`.
 
-- [watchdog.py](watchdog/watchdog.py), every hour: every container up and healthy, the web pages (Firefly III, importer, Pico, Nextcloud) answering, the Firefly III backup less than 30 hours old, the last nightly Nextcloud backup recent (it reads the marker `/var/backups/nextcloud/.last-success`, see [Nextcloud](#nextcloud-backup)), no cron job failing for more than 6 hours (`daily.sh` leaves a `backups/.state/<job>.failed` marker), disk under 85 %. It mails once per set of problems, and once more when they are gone. `python3 watchdog/watchdog.py --print` only prints.
+- [watchdog.py](watchdog/watchdog.py), every hour: every container up and healthy, the web pages (Firefly III, importer, Pico) answering, the Firefly III backup less than 30 hours old, no cron job failing for more than 6 hours (`daily.sh` leaves a `backups/.state/<job>.failed` marker), disk under 85 %. It mails once per set of problems, and once more when they are gone. `python3 watchdog/watchdog.py --print` only prints.
 - [restore_test.py](watchdog/restore_test.py), on the 1st of each month: loads the latest dump of `backups/` into a throwaway MariaDB and compares it with the live database; mails the result.
 
 It cannot warn you when the machine itself is off or offline: nothing runs then. Add an external ping (for example healthchecks.io, through `HEALTHCHECK_URL` and `IMPORT_HEALTHCHECK_URL` in `.env`) if you want that.
@@ -300,13 +300,7 @@ HEALTHCHECK_URL=https://hc-ping.com/<uuid>
 
 `backup.sh` reports its exit code to it after every run. Backups run whenever the machine is on (see [Scheduled jobs](#scheduled-jobs)), not at a fixed time, so on healthchecks.io use a **simple** schedule: period 1 day, grace time 2 days. You get an e-mail when a run fails, or when no backup has happened for 3 days. Apply with `docker compose up -d cron`.
 
-### Nextcloud backup
-
-Nextcloud (`../nextcloud`, outside this repository) is backed up by the root systemd timer `nextcloud-backup.timer` (every night around 03:30), which runs `/usr/local/sbin/nextcloud-backup.sh`: Nextcloud in maintenance mode for about a minute, a dump of its database, then a copy of `/srv/nextcloud-data` and of the `config` directory into `/var/backups/nextcloud/YYYY-MM-DD/` (`nextcloud.sql.gz`, `data/`, `config/`). Files that did not change are hard-linked from the previous day (`rsync --link-dest`), so 7 days cost little more than one. On success it touches `/var/backups/nextcloud/.last-success`, which the [monitoring](#monitoring) reads (the folder is mode 711: the marker is readable, the backups are root-only). The script is root-only and not versioned here. Like the Firefly III backups, this is on the same disk: copy `/var/backups/nextcloud` (as root) to a USB drive or another computer now and then.
-
 ### Restore
-
-Nextcloud (not tested end to end), as root: stop writes (`docker compose exec -u www-data app php occ maintenance:mode --on` in `../nextcloud`), copy `/var/backups/nextcloud/YYYY-MM-DD/data/` back to `/srv/nextcloud-data/` (`rsync -a --delete`), load the database with `gunzip -c .../nextcloud.sql.gz | docker compose exec -T db sh -c 'mariadb -u root -p"$MARIADB_ROOT_PASSWORD" nextcloud'`, put `.../config/` back into the `nextcloud_nextcloud_html` volume's `config` directory, then `occ maintenance:data-fingerprint` and `maintenance:mode --off`.
 
 Firefly III, database, from a local dump:
 
