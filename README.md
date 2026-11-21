@@ -285,8 +285,8 @@ By hand: `bilan/bilan.sh` (last month), `bilan/bilan.sh 2026-09` (another month)
 
 Each day (see [Scheduled jobs](#scheduled-jobs)) `backup.sh`:
 
-1. dumps the database to `backups/firefly_YYYY-MM-DD.sql.gz` and archives the `firefly_upload` volume to `backups/uploads_YYYY-MM-DD.tar.gz`;
-2. checks that both files can be read back (`gzip -t`, `tar t`), and keeps 14 days (`KEEP_DAYS` in `.env`).
+1. dumps the database to `backups/firefly_YYYY-MM-DD.sql.gz` and, only when the `firefly_upload` volume holds at least one attachment, archives it to `backups/uploads_YYYY-MM-DD.tar.gz` (no file, no archive);
+2. checks that the files can be read back (`gzip -t`, `tar t`), and keeps 14 days (`KEEP_DAYS` in `.env`).
 
 `backups/`, `*.sql` and `*.sql.gz` are git-ignored. The backups are local, on the same disk as the data: they protect against a mistake or a bad update, not against the loss of the machine. Copy `backups/` somewhere else now and then (USB drive, another computer).
 
@@ -311,7 +311,7 @@ gunzip -c backups/firefly_YYYY-MM-DD.sql.gz \
 
 `python3 watchdog/restore_test.py --print` does a dry run of this every month (latest dump loaded into a throwaway database).
 
-Attachments:
+Attachments (only if an `uploads_*.tar.gz` exists for that day; none is made while there are no attachments):
 
 ```bash
 docker run --rm -v firefly-iii_firefly_upload:/data -v "$PWD/backups":/backup alpine \

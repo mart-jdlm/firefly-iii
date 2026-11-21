@@ -1,6 +1,6 @@
 #!/bin/sh
-# Dumps the database and archives attachments into /backups (kept $KEEP_DAYS days), then checks
-# that both files can be read back.
+# Dumps the database and, if there are any, archives attachments into /backups (kept $KEEP_DAYS days),
+# then checks that the files can be read back.
 # Optional: HEALTHCHECK_URL (healthchecks.io ping URL) to get alerted when a run fails or is missed.
 set -eu -o pipefail
 
@@ -26,10 +26,15 @@ mariadb-dump -h db -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --single-transaction "$MY
 gzip -t "$db.tmp"
 mv "$db.tmp" "$db"
 
-echo "Archiving attachments to $uploads"
-tar czf "$uploads.tmp" -C /uploads .
-tar tzf "$uploads.tmp" > /dev/null
-mv "$uploads.tmp" "$uploads"
+# Attachments: only archive when there is at least one file (an empty volume gives a useless archive).
+if [ -n "$(find /uploads -mindepth 1 -type f -print -quit)" ]; then
+  echo "Archiving attachments to $uploads"
+  tar czf "$uploads.tmp" -C /uploads .
+  tar tzf "$uploads.tmp" > /dev/null
+  mv "$uploads.tmp" "$uploads"
+else
+  echo "No attachments: skipping the uploads archive"
+fi
 
 find /backups -maxdepth 1 \( -name 'firefly_*.sql.gz' -o -name 'uploads_*.tar.gz' \) -mtime +"${KEEP_DAYS:-14}" -delete
 
